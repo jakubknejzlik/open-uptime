@@ -88,7 +88,7 @@ func handleMessage(ctx context.Context, message events.SQSMessage) (err error) {
 	// 	log.Fatalf("unable to load SDK config, %v", err)
 	// }
 
-	sess := session.Must(session.NewSession(&aws.Config{MaxRetries: aws.Int(10), HTTPClient: &http.Client{Transport: tr}}))
+	sess := session.Must(session.NewSession(&aws.Config{MaxRetries: aws.Int(3), HTTPClient: &http.Client{Transport: tr}}))
 	writeSvc := timestreamwrite.New(sess) //, aws.NewConfig().WithLogLevel(aws.LogDebugWithHTTPBody))
 
 	// fmt.Println("??", cfg.Region)
@@ -126,6 +126,16 @@ func handleMessage(ctx context.Context, message events.SQSMessage) (err error) {
 				MeasureName:      aws.String("conn_duration"),
 				MeasureValue:     aws.String(fmt.Sprintf("%0.3f", float64(tp.ConnDuration().Microseconds())/1000.0)),
 				MeasureValueType: aws.String(timestreamwrite.MeasureValueTypeDouble),
+				Time:             time,
+				TimeUnit:         aws.String(timestreamwrite.TimeUnitNanoseconds),
+			},
+			{
+				Dimensions: []*timestreamwrite.Dimension{
+					{Name: aws.String("monitorId"), Value: &monitor.ID},
+				},
+				MeasureName:      aws.String("http_status_code"),
+				MeasureValue:     aws.String(fmt.Sprintf("%d", resp.StatusCode)),
+				MeasureValueType: aws.String(timestreamwrite.MeasureValueTypeBigint),
 				Time:             time,
 				TimeUnit:         aws.String(timestreamwrite.TimeUnitNanoseconds),
 			},
