@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -26,27 +27,104 @@ type Monitor struct {
 	Config   string
 }
 
-type Config struct {
+type MonitorConfig struct {
 	URL string
 }
 
+func main() {
+	if os.Getenv("AWS_LAMBDA_FUNCTION_NAME") == "" {
+		fmt.Println("empty AWS_LAMBDA_FUNCTION_NAME", os.Getenv("AWS_LAMBDA_FUNCTION_NAME"))
+		messages := []events.SQSMessage{}
+		for i := 0; i < 1; i++ {
+			m := Monitor{
+				ID:       fmt.Sprintf("test%d", i),
+				Schedule: "* * * * *",
+				Config:   "{\"url\":\"https://novacloud.cz/\"}",
+			}
+			data, _ := json.Marshal(m)
+			message := events.SQSMessage{Body: string(data)}
+			messages = append(messages, message)
+		}
+		err := handleRequest(context.Background(), events.SQSEvent{Records: messages})
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		lambda.Start(handleRequest)
+	}
+}
+
 func handleRequest(ctx context.Context, request events.SQSEvent) (err error) {
+	records := []*timestreamwrite.Record{}
+
+	var wg sync.WaitGroup
+
 	for _, message := range request.Records {
-		err = handleMessage(ctx, message)
+		wg.Add(1)
+		go func(m events.SQSMessage) {
+			defer wg.Done()
+			recs, _err := getRecordsForMessage(ctx, m)
+			if _err != nil {
+				err = _err
+				return
+			}
+			for _, rec := range recs {
+				records = append(records, rec)
+			}
+		}(message)
+	}
+	wg.Wait()
+
+	fmt.Println("records fetched:", len(records))
+
+	if len(records) > 0 {
+
+		tsDatabaseName := os.Getenv("TIMESTREAM_DATABASE_NAME")
+		tsTableName := os.Getenv("TIMESTREAM_TABLE_NAME")
+
+		tr := &http.Transport{
+			ResponseHeaderTimeout: 20 * time.Second,
+			// Using DefaultTransport values for other parameters: https://golang.org/pkg/net/http/#RoundTripper
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: (&net.Dialer{
+				KeepAlive: 30 * time.Second,
+				DualStack: true,
+				Timeout:   30 * time.Second,
+			}).DialContext,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		}
+
+		// So client makes HTTP/2 requests
+		http2.ConfigureTransport(tr)
+
+		sess := session.Must(session.NewSession(&aws.Config{MaxRetries: aws.Int(3), HTTPClient: &http.Client{Transport: tr}}))
+		writeSvc := timestreamwrite.New(sess) //, aws.NewConfig().WithLogLevel(aws.LogDebugWithHTTPBody))
+
+		input := &timestreamwrite.WriteRecordsInput{
+			DatabaseName: aws.String(tsDatabaseName),
+			TableName:    aws.String(tsTableName),
+			Records:      records,
+		}
+		_, err = writeSvc.WriteRecordsWithContext(ctx, input)
 	}
 	return
 }
-func handleMessage(ctx context.Context, message events.SQSMessage) (err error) {
-	tsDatabaseName := os.Getenv("TIMESTREAM_DATABASE_NAME")
-	tsTableName := os.Getenv("TIMESTREAM_TABLE_NAME")
-
+func getRecordsForMessage(ctx context.Context, message events.SQSMessage) (recs []*timestreamwrite.Record, err error) {
 	monitor := Monitor{}
 	err = json.Unmarshal([]byte(message.Body), &monitor)
 	if err != nil {
 		return
 	}
 
-	monitorConfig := Config{}
+	recs, err = getTSRecordForMonitor(ctx, monitor)
+	return
+}
+
+func getTSRecordForMonitor(ctx context.Context, monitor Monitor) (res []*timestreamwrite.Record, err error) {
+	monitorConfig := MonitorConfig{}
 	err = json.Unmarshal([]byte(monitor.Config), &monitorConfig)
 	if err != nil {
 		return
@@ -56,113 +134,64 @@ func handleMessage(ctx context.Context, message events.SQSMessage) (err error) {
 	client := &http.Client{Transport: tp}
 
 	resp, err := client.Get(monitorConfig.URL)
+	log.Println("Duration:", tp.Duration(), resp)
 	if err != nil {
+		err = nil
 		return
 	}
 	defer resp.Body.Close()
 
+	log.Println("Status:", resp.StatusCode, monitorConfig.URL)
 	log.Println("Duration:", tp.Duration())
 	log.Println("Request duration:", tp.ReqDuration())
 	log.Println("Connection duration:", tp.ConnDuration())
 
-	tr := &http.Transport{
-		ResponseHeaderTimeout: 20 * time.Second,
-		// Using DefaultTransport values for other parameters: https://golang.org/pkg/net/http/#RoundTripper
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			KeepAlive: 30 * time.Second,
-			DualStack: true,
-			Timeout:   30 * time.Second,
-		}).DialContext,
-		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-	}
-
-	// So client makes HTTP/2 requests
-	http2.ConfigureTransport(tr)
-
-	// cfg, err := config.LoadDefaultConfig(ctx, config.WithClientLogMode(aws.LogRequestWithBody))
-	// if err != nil {
-	// 	log.Fatalf("unable to load SDK config, %v", err)
-	// }
-
-	sess := session.Must(session.NewSession(&aws.Config{MaxRetries: aws.Int(3), HTTPClient: &http.Client{Transport: tr}}))
-	writeSvc := timestreamwrite.New(sess) //, aws.NewConfig().WithLogLevel(aws.LogDebugWithHTTPBody))
-
-	// fmt.Println("??", cfg.Region)
-	// ts := timestreamwrite.NewFromConfig(cfg)
-	// tsResponse, err := ts.WriteRecords(ctx, )
 	time := aws.String(strconv.FormatInt(time.Now().UnixNano(), 10))
-	records := &timestreamwrite.WriteRecordsInput{
-		DatabaseName: aws.String(tsDatabaseName),
-		TableName:    aws.String(tsTableName),
-		Records: []*timestreamwrite.Record{
-			{
-				Dimensions: []*timestreamwrite.Dimension{
-					{Name: aws.String("monitorId"), Value: &monitor.ID},
-				},
-				MeasureName:      aws.String("duration"),
-				MeasureValue:     aws.String(fmt.Sprintf("%0.3f", float64(tp.Duration().Microseconds())/1000.0)),
-				MeasureValueType: aws.String(timestreamwrite.MeasureValueTypeDouble),
-				Time:             time,
-				TimeUnit:         aws.String(timestreamwrite.TimeUnitNanoseconds),
+
+	res = []*timestreamwrite.Record{
+		{
+			Dimensions: []*timestreamwrite.Dimension{
+				{Name: aws.String("monitorId"), Value: &monitor.ID},
 			},
-			{
-				Dimensions: []*timestreamwrite.Dimension{
-					{Name: aws.String("monitorId"), Value: &monitor.ID},
-				},
-				MeasureName:      aws.String("req_duration"),
-				MeasureValue:     aws.String(fmt.Sprintf("%0.3f", float64(tp.ReqDuration().Microseconds())/1000.0)),
-				MeasureValueType: aws.String(timestreamwrite.MeasureValueTypeDouble),
-				Time:             time,
-				TimeUnit:         aws.String(timestreamwrite.TimeUnitNanoseconds),
+			MeasureName:      aws.String("duration"),
+			MeasureValue:     aws.String(fmt.Sprintf("%0.3f", float64(tp.Duration().Microseconds())/1000.0)),
+			MeasureValueType: aws.String(timestreamwrite.MeasureValueTypeDouble),
+			Time:             time,
+			TimeUnit:         aws.String(timestreamwrite.TimeUnitNanoseconds),
+		},
+		{
+			Dimensions: []*timestreamwrite.Dimension{
+				{Name: aws.String("monitorId"), Value: &monitor.ID},
 			},
-			{
-				Dimensions: []*timestreamwrite.Dimension{
-					{Name: aws.String("monitorId"), Value: &monitor.ID},
-				},
-				MeasureName:      aws.String("conn_duration"),
-				MeasureValue:     aws.String(fmt.Sprintf("%0.3f", float64(tp.ConnDuration().Microseconds())/1000.0)),
-				MeasureValueType: aws.String(timestreamwrite.MeasureValueTypeDouble),
-				Time:             time,
-				TimeUnit:         aws.String(timestreamwrite.TimeUnitNanoseconds),
+			MeasureName:      aws.String("req_duration"),
+			MeasureValue:     aws.String(fmt.Sprintf("%0.3f", float64(tp.ReqDuration().Microseconds())/1000.0)),
+			MeasureValueType: aws.String(timestreamwrite.MeasureValueTypeDouble),
+			Time:             time,
+			TimeUnit:         aws.String(timestreamwrite.TimeUnitNanoseconds),
+		},
+		{
+			Dimensions: []*timestreamwrite.Dimension{
+				{Name: aws.String("monitorId"), Value: &monitor.ID},
 			},
-			{
-				Dimensions: []*timestreamwrite.Dimension{
-					{Name: aws.String("monitorId"), Value: &monitor.ID},
-				},
-				MeasureName:      aws.String("http_status_code"),
-				MeasureValue:     aws.String(fmt.Sprintf("%d", resp.StatusCode)),
-				MeasureValueType: aws.String(timestreamwrite.MeasureValueTypeBigint),
-				Time:             time,
-				TimeUnit:         aws.String(timestreamwrite.TimeUnitNanoseconds),
+			MeasureName:      aws.String("conn_duration"),
+			MeasureValue:     aws.String(fmt.Sprintf("%0.3f", float64(tp.ConnDuration().Microseconds())/1000.0)),
+			MeasureValueType: aws.String(timestreamwrite.MeasureValueTypeDouble),
+			Time:             time,
+			TimeUnit:         aws.String(timestreamwrite.TimeUnitNanoseconds),
+		},
+		{
+			Dimensions: []*timestreamwrite.Dimension{
+				{Name: aws.String("monitorId"), Value: &monitor.ID},
 			},
+			MeasureName:      aws.String("http_status_code"),
+			MeasureValue:     aws.String(fmt.Sprintf("%d", resp.StatusCode)),
+			MeasureValueType: aws.String(timestreamwrite.MeasureValueTypeBigint),
+			Time:             time,
+			TimeUnit:         aws.String(timestreamwrite.TimeUnitNanoseconds),
 		},
 	}
-	tsResponse, err := writeSvc.WriteRecordsWithContext(ctx, records)
-	fmt.Println("??", tsResponse, err)
-	return
-}
 
-func main() {
-	if os.Getenv("AWS_LAMBDA_FUNCTION_NAME") == "" {
-		fmt.Println("empty AWS_LAMBDA_FUNCTION_NAME", os.Getenv("AWS_LAMBDA_FUNCTION_NAME"))
-		m := Monitor{
-			ID:       "test",
-			Schedule: "* * * * *",
-			Config:   "{\"url\":\"https://gimmedata.cz\"}",
-		}
-		data, _ := json.Marshal(m)
-		message := events.SQSMessage{Body: string(data)}
-		err := handleRequest(context.Background(), events.SQSEvent{Records: []events.SQSMessage{message}})
-		if err != nil {
-			panic(err)
-		}
-	} else {
-		lambda.Start(handleRequest)
-	}
+	return
 }
 
 type customTransport struct {
@@ -178,14 +207,14 @@ func newTransport() *customTransport {
 
 	tr := &customTransport{
 		dialer: &net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
+			Timeout:   5 * time.Second,
+			KeepAlive: 5 * time.Second,
 		},
 	}
 	tr.rtp = &http.Transport{
 		Proxy:               http.ProxyFromEnvironment,
 		Dial:                tr.dial,
-		TLSHandshakeTimeout: 10 * time.Second,
+		TLSHandshakeTimeout: 3 * time.Second,
 	}
 	return tr
 }
