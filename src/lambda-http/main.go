@@ -18,13 +18,14 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 
 	"github.com/aws/aws-sdk-go/service/timestreamwrite"
+	"github.com/mitchellh/mapstructure"
 	"golang.org/x/net/http2"
 )
 
 type Monitor struct {
-	ID       string
-	Schedule string
-	Config   string
+	ID       string      `json:"id"`
+	Schedule string      `json:"schedule"`
+	Config   interface{} `json:"config"`
 }
 
 type MonitorConfig struct {
@@ -34,12 +35,15 @@ type MonitorConfig struct {
 func main() {
 	if os.Getenv("AWS_LAMBDA_FUNCTION_NAME") == "" {
 		fmt.Println("empty AWS_LAMBDA_FUNCTION_NAME", os.Getenv("AWS_LAMBDA_FUNCTION_NAME"))
+		urls := []string{"https://novacloud.cz/", "https://gimmedata.cz/"}
 		messages := []events.SQSMessage{}
-		for i := 0; i < 1; i++ {
+		for i, url := range urls {
 			m := Monitor{
 				ID:       fmt.Sprintf("test%d", i),
 				Schedule: "* * * * *",
-				Config:   "{\"url\":\"https://novacloud.cz/\"}",
+				Config: map[string]string{
+					"url": url,
+				},
 			}
 			data, _ := json.Marshal(m)
 			message := events.SQSMessage{Body: string(data)}
@@ -75,7 +79,7 @@ func handleRequest(ctx context.Context, request events.SQSEvent) (err error) {
 	}
 	wg.Wait()
 
-	fmt.Println("records fetched:", len(records))
+	fmt.Println("records to send:", len(records))
 
 	if len(records) > 0 {
 
@@ -125,7 +129,7 @@ func getRecordsForMessage(ctx context.Context, message events.SQSMessage) (recs 
 
 func getTSRecordForMonitor(ctx context.Context, monitor Monitor) (res []*timestreamwrite.Record, err error) {
 	monitorConfig := MonitorConfig{}
-	err = json.Unmarshal([]byte(monitor.Config), &monitorConfig)
+	mapstructure.Decode(monitor.Config, &monitorConfig)
 	if err != nil {
 		return
 	}
@@ -134,7 +138,7 @@ func getTSRecordForMonitor(ctx context.Context, monitor Monitor) (res []*timestr
 	client := &http.Client{Transport: tp}
 
 	resp, err := client.Get(monitorConfig.URL)
-	log.Println("Duration:", tp.Duration(), resp)
+	log.Println("Duration:", tp.Duration(), resp, err)
 	if err != nil {
 		err = nil
 		return

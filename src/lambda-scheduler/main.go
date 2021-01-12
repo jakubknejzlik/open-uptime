@@ -20,9 +20,9 @@ import (
 )
 
 type Monitor struct {
-	ID       string
-	Schedule string
-	Config   string
+	ID       string      `json:"id"`
+	Schedule string      `json:"schedule"`
+	Config   interface{} `json:"config"`
 }
 
 func handleRequest(ctx context.Context, request events.CloudWatchEvent) (err error) {
@@ -53,6 +53,10 @@ func handleRequest(ctx context.Context, request events.CloudWatchEvent) (err err
 	fmt.Printf("items: %d, scans: %d, capacity: %v\n", *resp.Count, *resp.ScannedCount, resp.ConsumedCapacity)
 	monitors := []Monitor{}
 	err = dynamodbattribute.UnmarshalListOfMaps(resp.Items, &monitors)
+	if err != nil {
+		return
+	}
+
 	for _, monitor := range monitors {
 		schedule, parseErr := specParser.Parse(monitor.Schedule)
 		if parseErr != nil {
@@ -70,6 +74,9 @@ func handleRequest(ctx context.Context, request events.CloudWatchEvent) (err err
 				err = jsonErr
 				return
 			}
+
+			fmt.Println("??", string(data))
+			return
 
 			sqsResp, sqsErr := sqsSvc.SendMessage(ctx, &sqs.SendMessageInput{
 				MessageBody: aws.String(string(data)),

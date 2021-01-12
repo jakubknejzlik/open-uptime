@@ -13,19 +13,19 @@ input MonitorCreateInput {
     id: ID
     name: String!
     schedule: String!
-    config: String!
+    config: AWSJSON!
 }
 input MonitorUpdateInput {
     name: String
     schedule: String
-    config: String
+    config: AWSJSON
 }
 
 type Monitor {
     id: ID!
     name: String
     schedule: String!
-    config: String!
+    config: AWSJSON!
     version: Int
 }
 
