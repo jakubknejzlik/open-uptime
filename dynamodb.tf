@@ -13,6 +13,40 @@ resource "aws_dynamodb_table" "monitors" {
   }
 }
 
+resource "aws_dynamodb_table" "events" {
+  name           = "OpenuptimeEvents"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "id"
+  range_key = "monitorId"
+  attribute {
+    name = "id"
+    type = "S"
+  }
+  attribute {
+    name = "monitorId"
+    type = "S"
+  }
+  attribute {
+    name = "date"
+    type = "S"
+  }
+  # attribute {
+  #   name = "state"
+  #   type = "S"
+  # }
+
+  global_secondary_index {
+    name = "test"
+    hash_key ="monitorId"
+    range_key = "date"
+    projection_type = "ALL"
+  }
+
+  tags = {
+    app = "openuptime"
+  }
+}
+
 resource "aws_iam_role" "monitors" {
   name = "openuptime-monitors"
 
@@ -60,15 +94,4 @@ resource "aws_iam_role_policy" "monitors" {
   ]
 }
 EOF
-}
-
-resource "aws_appsync_datasource" "monitors" {
-  api_id           = aws_appsync_graphql_api.test.id
-  name             = "openuptime_monitors"
-  service_role_arn = aws_iam_role.monitors.arn
-  type             = "AMAZON_DYNAMODB"
-
-  dynamodb_config {
-    table_name = aws_dynamodb_table.monitors.name
-  }
 }

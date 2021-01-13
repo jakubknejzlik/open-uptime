@@ -17,9 +17,9 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 
+	"github.com/aws/aws-sdk-go/service/sns"
 	"github.com/aws/aws-sdk-go/service/timestreamwrite"
 	"github.com/mitchellh/mapstructure"
-	"golang.org/x/net/http2"
 )
 
 type Monitor struct {
@@ -30,6 +30,20 @@ type Monitor struct {
 
 type MonitorConfig struct {
 	URL string
+}
+
+type ResultEvent struct {
+	Name      string `json:"name"`
+	Value     string `json:"value"`
+	ValueType string `json:"valueType"`
+}
+type Result struct {
+	MonitorID   string        `json:"monitorId"`
+	Events      []ResultEvent `json:"events"`
+	Status      string        `json:"status"`
+	Description string        `json:"description"`
+	Time        string        `json:"time"`
+	TimeUnit    string        `json:"timeUnit"`
 }
 
 func main() {
@@ -59,7 +73,7 @@ func main() {
 }
 
 func handleRequest(ctx context.Context, request events.SQSEvent) (err error) {
-	records := []*timestreamwrite.Record{}
+	results := []Result{}
 
 	var wg sync.WaitGroup
 
@@ -67,67 +81,72 @@ func handleRequest(ctx context.Context, request events.SQSEvent) (err error) {
 		wg.Add(1)
 		go func(m events.SQSMessage) {
 			defer wg.Done()
-			recs, _err := getRecordsForMessage(ctx, m)
+			res, _err := getRecordsForMessage(ctx, m)
 			if _err != nil {
 				err = _err
 				return
 			}
-			for _, rec := range recs {
-				records = append(records, rec)
-			}
+			results = append(results, res)
 		}(message)
 	}
 	wg.Wait()
 
-	fmt.Println("records to send:", len(records))
+	fmt.Println("results to send:", len(results))
 
-	if len(records) > 0 {
+	if len(results) > 0 {
 
-		tsDatabaseName := os.Getenv("TIMESTREAM_DATABASE_NAME")
-		tsTableName := os.Getenv("TIMESTREAM_TABLE_NAME")
+		jsonPayload, _err := json.Marshal(results)
+		if _err != nil {
+			err = _err
+			return
+		}
+		snsARN := os.Getenv("SNS_ARN")
+		sess := session.Must(session.NewSession(&aws.Config{}))
 
-		tr := &http.Transport{
-			ResponseHeaderTimeout: 20 * time.Second,
-			// Using DefaultTransport values for other parameters: https://golang.org/pkg/net/http/#RoundTripper
-			Proxy: http.ProxyFromEnvironment,
-			DialContext: (&net.Dialer{
-				KeepAlive: 30 * time.Second,
-				DualStack: true,
-				Timeout:   30 * time.Second,
-			}).DialContext,
-			MaxIdleConns:          100,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
+		client := sns.New(sess)
+		input := &sns.PublishInput{
+			Message:  aws.String(string(jsonPayload)),
+			TopicArn: aws.String(snsARN),
 		}
 
-		// So client makes HTTP/2 requests
-		http2.ConfigureTransport(tr)
-
-		sess := session.Must(session.NewSession(&aws.Config{MaxRetries: aws.Int(3), HTTPClient: &http.Client{Transport: tr}}))
-		writeSvc := timestreamwrite.New(sess) //, aws.NewConfig().WithLogLevel(aws.LogDebugWithHTTPBody))
-
-		input := &timestreamwrite.WriteRecordsInput{
-			DatabaseName: aws.String(tsDatabaseName),
-			TableName:    aws.String(tsTableName),
-			Records:      records,
-		}
-		_, err = writeSvc.WriteRecordsWithContext(ctx, input)
+		_, err = client.Publish(input)
 	}
 	return
 }
-func getRecordsForMessage(ctx context.Context, message events.SQSMessage) (recs []*timestreamwrite.Record, err error) {
+func getRecordsForMessage(ctx context.Context, message events.SQSMessage) (result Result, err error) {
 	monitor := Monitor{}
 	err = json.Unmarshal([]byte(message.Body), &monitor)
 	if err != nil {
 		return
 	}
 
-	recs, err = getTSRecordForMonitor(ctx, monitor)
+	recs, err := getTSRecordForMonitor(ctx, monitor)
+	time := strconv.FormatInt(time.Now().UnixNano(), 10)
+	if err != nil {
+		result = Result{
+			MonitorID:   monitor.ID,
+			Events:      []ResultEvent{},
+			Status:      "Error",
+			Description: err.Error(),
+			Time:        time,
+			TimeUnit:    timestreamwrite.TimeUnitNanoseconds,
+		}
+	} else {
+		result = Result{
+			MonitorID:   monitor.ID,
+			Events:      recs,
+			Status:      "Success",
+			Description: "OK",
+			Time:        time,
+			TimeUnit:    timestreamwrite.TimeUnitNanoseconds,
+		}
+	}
+	err = nil
+
 	return
 }
 
-func getTSRecordForMonitor(ctx context.Context, monitor Monitor) (res []*timestreamwrite.Record, err error) {
+func getTSRecordForMonitor(ctx context.Context, monitor Monitor) (res []ResultEvent, err error) {
 	monitorConfig := MonitorConfig{}
 	mapstructure.Decode(monitor.Config, &monitorConfig)
 	if err != nil {
@@ -140,7 +159,6 @@ func getTSRecordForMonitor(ctx context.Context, monitor Monitor) (res []*timestr
 	resp, err := client.Get(monitorConfig.URL)
 	log.Println("Duration:", tp.Duration(), resp, err)
 	if err != nil {
-		err = nil
 		return
 	}
 	defer resp.Body.Close()
@@ -150,48 +168,26 @@ func getTSRecordForMonitor(ctx context.Context, monitor Monitor) (res []*timestr
 	log.Println("Request duration:", tp.ReqDuration())
 	log.Println("Connection duration:", tp.ConnDuration())
 
-	time := aws.String(strconv.FormatInt(time.Now().UnixNano(), 10))
-
-	res = []*timestreamwrite.Record{
+	res = []ResultEvent{
 		{
-			Dimensions: []*timestreamwrite.Dimension{
-				{Name: aws.String("monitorId"), Value: &monitor.ID},
-			},
-			MeasureName:      aws.String("duration"),
-			MeasureValue:     aws.String(fmt.Sprintf("%0.3f", float64(tp.Duration().Microseconds())/1000.0)),
-			MeasureValueType: aws.String(timestreamwrite.MeasureValueTypeDouble),
-			Time:             time,
-			TimeUnit:         aws.String(timestreamwrite.TimeUnitNanoseconds),
+			Name:      "duration",
+			Value:     fmt.Sprintf("%0.3f", float64(tp.Duration().Microseconds())/1000.0),
+			ValueType: timestreamwrite.MeasureValueTypeDouble,
 		},
 		{
-			Dimensions: []*timestreamwrite.Dimension{
-				{Name: aws.String("monitorId"), Value: &monitor.ID},
-			},
-			MeasureName:      aws.String("req_duration"),
-			MeasureValue:     aws.String(fmt.Sprintf("%0.3f", float64(tp.ReqDuration().Microseconds())/1000.0)),
-			MeasureValueType: aws.String(timestreamwrite.MeasureValueTypeDouble),
-			Time:             time,
-			TimeUnit:         aws.String(timestreamwrite.TimeUnitNanoseconds),
+			Name:      "req_duration",
+			Value:     fmt.Sprintf("%0.3f", float64(tp.ReqDuration().Microseconds())/1000.0),
+			ValueType: timestreamwrite.MeasureValueTypeDouble,
 		},
 		{
-			Dimensions: []*timestreamwrite.Dimension{
-				{Name: aws.String("monitorId"), Value: &monitor.ID},
-			},
-			MeasureName:      aws.String("conn_duration"),
-			MeasureValue:     aws.String(fmt.Sprintf("%0.3f", float64(tp.ConnDuration().Microseconds())/1000.0)),
-			MeasureValueType: aws.String(timestreamwrite.MeasureValueTypeDouble),
-			Time:             time,
-			TimeUnit:         aws.String(timestreamwrite.TimeUnitNanoseconds),
+			Name:      "conn_duration",
+			Value:     fmt.Sprintf("%0.3f", float64(tp.ConnDuration().Microseconds())/1000.0),
+			ValueType: timestreamwrite.MeasureValueTypeDouble,
 		},
 		{
-			Dimensions: []*timestreamwrite.Dimension{
-				{Name: aws.String("monitorId"), Value: &monitor.ID},
-			},
-			MeasureName:      aws.String("http_status_code"),
-			MeasureValue:     aws.String(fmt.Sprintf("%d", resp.StatusCode)),
-			MeasureValueType: aws.String(timestreamwrite.MeasureValueTypeBigint),
-			Time:             time,
-			TimeUnit:         aws.String(timestreamwrite.TimeUnitNanoseconds),
+			Name:      "http_status_code",
+			Value:     fmt.Sprintf("%d", resp.StatusCode),
+			ValueType: timestreamwrite.MeasureValueTypeBigint,
 		},
 	}
 

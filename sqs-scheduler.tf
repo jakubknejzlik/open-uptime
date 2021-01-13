@@ -26,5 +26,6 @@ resource "aws_sqs_queue" "schedules-dlq" {
 
 # used to retrieve queue url
 data "aws_sqs_queue" "schedules" {
+  depends_on = [ aws_sqs_queue.schedules ]
   name = "openuptime-schedules"
 }

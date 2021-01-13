@@ -14,11 +14,24 @@ input MonitorCreateInput {
     name: String!
     schedule: String!
     config: AWSJSON!
+    enabled: Boolean
 }
 input MonitorUpdateInput {
     name: String
     schedule: String
     config: AWSJSON
+    enabled: Boolean
+}
+
+enum MonitorStatusResult {
+    OK
+    ERROR
+}
+
+type MonitorStatus {
+    date: AWSDateTime!
+    result: MonitorStatusResult!
+    description: String
 }
 
 type Monitor {
@@ -27,6 +40,9 @@ type Monitor {
     schedule: String!
     config: AWSJSON!
     version: Int
+    enabled: Boolean!
+
+    latestStatus: MonitorStatus
 }
 
 type Mutation {
@@ -44,6 +60,17 @@ schema {
     mutation: Mutation
 }
 EOF
+}
+
+resource "aws_appsync_datasource" "monitors" {
+  api_id           = aws_appsync_graphql_api.test.id
+  name             = "openuptime_monitors"
+  service_role_arn = aws_iam_role.monitors.arn
+  type             = "AMAZON_DYNAMODB"
+
+  dynamodb_config {
+    table_name = aws_dynamodb_table.monitors.name
+  }
 }
 
 resource "aws_appsync_api_key" "test" {
@@ -89,6 +116,7 @@ resource "aws_appsync_resolver" "create-monitor" {
         "name" : $util.dynamodb.toDynamoDBJson($ctx.arguments.input.name),
         "schedule" : $util.dynamodb.toDynamoDBJson($ctx.arguments.input.schedule),
         "config" : $util.dynamodb.toDynamoDBJson($ctx.arguments.input.config),
+        "enabled" : $util.dynamodb.toDynamoDBJson($util.defaultIfNull($ctx.arguments.input.enabled,true)),
         "version" : { "N" : 1 }
     }
 }

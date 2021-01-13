@@ -34,20 +34,11 @@ resource "aws_iam_role_policy" "http" {
   "Statement": [
     {
       "Action": [
-        "timestream:WriteRecords"
+        "sns:Publish"
       ],
       "Effect": "Allow",
       "Resource": [
-        "${aws_cloudformation_stack.timestream.outputs.TableARN}"
-      ]
-    },
-    {
-      "Action": [
-        "timestream:DescribeEndpoints"
-      ],
-      "Effect": "Allow",
-      "Resource": [
-        "*"
+        "${aws_sns_topic.results.arn}"
       ]
     },
     {
@@ -86,8 +77,7 @@ resource "aws_lambda_function" "http" {
 
   environment {
     variables = {
-      TIMESTREAM_DATABASE_NAME = "openuptime"
-      TIMESTREAM_TABLE_NAME    = "monitors"
+      SNS_ARN = aws_sns_topic.results.arn
     }
   }
 

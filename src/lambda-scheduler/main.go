@@ -23,6 +23,7 @@ type Monitor struct {
 	ID       string      `json:"id"`
 	Schedule string      `json:"schedule"`
 	Config   interface{} `json:"config"`
+	Enabled  bool        `json:"enabled"`
 }
 
 func handleRequest(ctx context.Context, request events.CloudWatchEvent) (err error) {
@@ -58,6 +59,10 @@ func handleRequest(ctx context.Context, request events.CloudWatchEvent) (err err
 	}
 
 	for _, monitor := range monitors {
+		if !monitor.Enabled {
+			continue
+		}
+
 		schedule, parseErr := specParser.Parse(monitor.Schedule)
 		if parseErr != nil {
 			err = fmt.Errorf("Could not parse %s, with error %v", monitor.Schedule, parseErr)
@@ -67,16 +72,12 @@ func handleRequest(ctx context.Context, request events.CloudWatchEvent) (err err
 		next := schedule.Next(now)
 		secs := next.Sub(now).Seconds()
 
-		fmt.Println("??", secs)
 		if secs < 60 {
 			data, jsonErr := json.Marshal(monitor)
 			if jsonErr != nil {
 				err = jsonErr
 				return
 			}
-
-			fmt.Println("??", string(data))
-			return
 
 			sqsResp, sqsErr := sqsSvc.SendMessage(ctx, &sqs.SendMessageInput{
 				MessageBody: aws.String(string(data)),
