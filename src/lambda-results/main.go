@@ -15,6 +15,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 
+	"github.com/aws/aws-sdk-go/service/dynamodb"
+	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
 	"github.com/aws/aws-sdk-go/service/timestreamwrite"
 	"golang.org/x/net/http2"
 )
@@ -23,6 +25,7 @@ type Monitor struct {
 	ID       string      `json:"id"`
 	Schedule string      `json:"schedule"`
 	Config   interface{} `json:"config"`
+	Status   string      `json:"status"`
 }
 
 type ResultEvent struct {
@@ -37,6 +40,13 @@ type Result struct {
 	Description string        `json:"description"`
 	Time        string        `json:"time"`
 	TimeUnit    string        `json:"timeUnit"`
+}
+
+type MonitorEvent struct {
+	MonitorID   string    `json:"monitorId"`
+	Status      string    `json:"status"`
+	Description string    `json:"description"`
+	Date        time.Time `json:"date"`
 }
 
 func main() {
@@ -54,7 +64,7 @@ func main() {
 					},
 				},
 				Status:      "OK",
-				Description: "OK",
+				Description: "Connection timeout",
 				Time:        time,
 				TimeUnit:    "NANOSECONDS",
 			},
@@ -71,11 +81,41 @@ func main() {
 }
 
 func handleRequest(ctx context.Context, request events.SQSEvent) (err error) {
+	tr := &http.Transport{
+		ResponseHeaderTimeout: 20 * time.Second,
+		// Using DefaultTransport values for other parameters: https://golang.org/pkg/net/http/#RoundTripper
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			KeepAlive: 30 * time.Second,
+			DualStack: true,
+			Timeout:   30 * time.Second,
+		}).DialContext,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	// So client makes HTTP/2 requests
+	http2.ConfigureTransport(tr)
+
+	sess := session.Must(session.NewSession(&aws.Config{MaxRetries: aws.Int(3), HTTPClient: &http.Client{Transport: tr}}))
+
 	records := []*timestreamwrite.Record{}
 
 	for _, message := range request.Records {
 		results := []Result{}
 		json.Unmarshal([]byte(message.Body), &results)
+
+		err = writeResultEvents(ctx, sess, results)
+		if err != nil {
+			return
+		}
+		err = updateMonitorStatus(ctx, sess, results)
+		if err != nil {
+			return
+		}
+
 		for _, result := range results {
 			for _, event := range result.Events {
 				rec := timestreamwrite.Record{
@@ -96,37 +136,93 @@ func handleRequest(ctx context.Context, request events.SQSEvent) (err error) {
 	fmt.Println("records to send:", len(records))
 
 	if len(records) > 0 {
+		err = writeRecordsToTimeStream(ctx, sess, records)
+	}
 
-		tsDatabaseName := os.Getenv("TIMESTREAM_DATABASE_NAME")
-		tsTableName := os.Getenv("TIMESTREAM_TABLE_NAME")
+	return
+}
 
-		tr := &http.Transport{
-			ResponseHeaderTimeout: 20 * time.Second,
-			// Using DefaultTransport values for other parameters: https://golang.org/pkg/net/http/#RoundTripper
-			Proxy: http.ProxyFromEnvironment,
-			DialContext: (&net.Dialer{
-				KeepAlive: 30 * time.Second,
-				DualStack: true,
-				Timeout:   30 * time.Second,
-			}).DialContext,
-			MaxIdleConns:          100,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
+func writeResultEvents(ctx context.Context, sess *session.Session, results []Result) (err error) {
+	ddbTableName := os.Getenv("DYNAMODB_EVENTS_TABLE_NAME")
+	svc := dynamodb.New(session.New())
+
+	for _, result := range results {
+		nano, _err := strconv.ParseInt(result.Time, 10, 0)
+		if _err != nil {
+			err = _err
+			return
 		}
 
-		// So client makes HTTP/2 requests
-		http2.ConfigureTransport(tr)
-
-		sess := session.Must(session.NewSession(&aws.Config{MaxRetries: aws.Int(3), HTTPClient: &http.Client{Transport: tr}}))
-		writeSvc := timestreamwrite.New(sess) //, aws.NewConfig().WithLogLevel(aws.LogDebugWithHTTPBody))
-
-		input := &timestreamwrite.WriteRecordsInput{
-			DatabaseName: aws.String(tsDatabaseName),
-			TableName:    aws.String(tsTableName),
-			Records:      records,
+		event := MonitorEvent{
+			MonitorID:   result.MonitorID,
+			Status:      result.Status,
+			Description: result.Description,
+			Date:        time.Unix(0, nano),
 		}
-		_, err = writeSvc.WriteRecordsWithContext(ctx, input)
+		av, _err := dynamodbattribute.MarshalMap(event)
+		if _err != nil {
+			err = _err
+			return
+		}
+
+		_, err = svc.PutItem(&dynamodb.PutItemInput{
+			TableName: aws.String(ddbTableName),
+			Item:      av,
+		})
+
+	}
+	return
+}
+
+func writeRecordsToTimeStream(ctx context.Context, sess *session.Session, records []*timestreamwrite.Record) (err error) {
+	tsDatabaseName := os.Getenv("TIMESTREAM_DATABASE_NAME")
+	tsTableName := os.Getenv("TIMESTREAM_TABLE_NAME")
+
+	writeSvc := timestreamwrite.New(sess) //, aws.NewConfig().WithLogLevel(aws.LogDebugWithHTTPBody))
+
+	input := &timestreamwrite.WriteRecordsInput{
+		DatabaseName: aws.String(tsDatabaseName),
+		TableName:    aws.String(tsTableName),
+		Records:      records,
+	}
+	_, err = writeSvc.WriteRecordsWithContext(ctx, input)
+	return
+}
+
+func updateMonitorStatus(ctx context.Context, sess *session.Session, results []Result) (err error) {
+	ddbTableName := os.Getenv("DYNAMODB_MONITORS_TABLE_NAME")
+	svc := dynamodb.New(session.New())
+
+	if len(results) == 0 {
+		return
+	}
+
+	fmt.Printf("storing %d results to %s\n", len(results), ddbTableName)
+
+	for _, result := range results {
+		input := &dynamodb.UpdateItemInput{
+			ExpressionAttributeNames: map[string]*string{
+				"#S":  aws.String("status"),
+				"#SD": aws.String("statusDescription"),
+			},
+			ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
+				":status": {
+					S: aws.String(result.Status),
+				},
+				":statusDescription": {
+					S: aws.String(result.Description),
+				},
+			},
+			Key: map[string]*dynamodb.AttributeValue{
+				"id": {
+					S: aws.String(result.MonitorID),
+				},
+			},
+			TableName:        aws.String(ddbTableName),
+			UpdateExpression: aws.String("SET #S = :status,#SD = :statusDescription"),
+		}
+
+		_, err = svc.UpdateItem(input)
 	}
 	return
 }

@@ -125,8 +125,8 @@ func getRecordsForMessage(ctx context.Context, message events.SQSMessage) (resul
 	if err != nil {
 		result = Result{
 			MonitorID:   monitor.ID,
-			Events:      []ResultEvent{},
-			Status:      "Error",
+			Events:      recs,
+			Status:      "ERROR",
 			Description: err.Error(),
 			Time:        time,
 			TimeUnit:    timestreamwrite.TimeUnitNanoseconds,
@@ -135,7 +135,7 @@ func getRecordsForMessage(ctx context.Context, message events.SQSMessage) (resul
 		result = Result{
 			MonitorID:   monitor.ID,
 			Events:      recs,
-			Status:      "Success",
+			Status:      "SUCCESS",
 			Description: "OK",
 			Time:        time,
 			TimeUnit:    timestreamwrite.TimeUnitNanoseconds,
@@ -189,6 +189,10 @@ func getTSRecordForMonitor(ctx context.Context, monitor Monitor) (res []ResultEv
 			Value:     fmt.Sprintf("%d", resp.StatusCode),
 			ValueType: timestreamwrite.MeasureValueTypeBigint,
 		},
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
+		err = fmt.Errorf("Unexpected status code %d", resp.StatusCode)
 	}
 
 	return

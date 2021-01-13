@@ -3,6 +3,9 @@ resource "aws_dynamodb_table" "monitors" {
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "id"
 
+  stream_enabled = true
+  stream_view_type = "NEW_AND_OLD_IMAGES"
+
   attribute {
     name = "id"
     type = "S"
@@ -16,12 +19,9 @@ resource "aws_dynamodb_table" "monitors" {
 resource "aws_dynamodb_table" "events" {
   name           = "OpenuptimeEvents"
   billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "id"
-  range_key = "monitorId"
-  attribute {
-    name = "id"
-    type = "S"
-  }
+  hash_key     = "monitorId"
+  range_key = "date"
+  
   attribute {
     name = "monitorId"
     type = "S"
@@ -34,13 +34,6 @@ resource "aws_dynamodb_table" "events" {
   #   name = "state"
   #   type = "S"
   # }
-
-  global_secondary_index {
-    name = "test"
-    hash_key ="monitorId"
-    range_key = "date"
-    projection_type = "ALL"
-  }
 
   tags = {
     app = "openuptime"

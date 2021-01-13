@@ -1,2 +1,3 @@
 # open-uptime
-OSS uptime monitoring tool based on serverless architecture
+
+Serverless uptime monitoring tool, run in AWS, strictly PAYG only (no minimal expenses).

@@ -23,15 +23,9 @@ input MonitorUpdateInput {
     enabled: Boolean
 }
 
-enum MonitorStatusResult {
+enum MonitorStatus {
     OK
     ERROR
-}
-
-type MonitorStatus {
-    date: AWSDateTime!
-    result: MonitorStatusResult!
-    description: String
 }
 
 type Monitor {
@@ -42,7 +36,8 @@ type Monitor {
     version: Int
     enabled: Boolean!
 
-    latestStatus: MonitorStatus
+    status: MonitorStatus
+    statusDescription: String
 }
 
 type Mutation {
