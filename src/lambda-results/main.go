@@ -38,21 +38,12 @@ type Result struct {
 	Events      []ResultEvent `json:"events"`
 	Status      string        `json:"status"`
 	Description string        `json:"description"`
-	Time        string        `json:"time"`
-	TimeUnit    string        `json:"timeUnit"`
-}
-
-type MonitorEvent struct {
-	MonitorID   string    `json:"monitorId"`
-	Status      string    `json:"status"`
-	Description string    `json:"description"`
-	Date        time.Time `json:"date"`
+	Time        time.Time     `json:"time"`
 }
 
 func main() {
 	if os.Getenv("AWS_LAMBDA_FUNCTION_NAME") == "" {
 		fmt.Println("empty AWS_LAMBDA_FUNCTION_NAME", os.Getenv("AWS_LAMBDA_FUNCTION_NAME"))
-		time := strconv.FormatInt(time.Now().UnixNano(), 10)
 		m := []Result{
 			{
 				MonitorID: "test",
@@ -63,10 +54,9 @@ func main() {
 						ValueType: "DOUBLE",
 					},
 				},
-				Status:      "OK",
+				Status:      "DOWN",
 				Description: "Connection timeout",
-				Time:        time,
-				TimeUnit:    "NANOSECONDS",
+				Time:        time.Now(),
 			},
 		}
 		data, _ := json.Marshal(m)
@@ -107,10 +97,6 @@ func handleRequest(ctx context.Context, request events.SQSEvent) (err error) {
 		results := []Result{}
 		json.Unmarshal([]byte(message.Body), &results)
 
-		err = writeResultEvents(ctx, sess, results)
-		if err != nil {
-			return
-		}
 		err = updateMonitorStatus(ctx, sess, results)
 		if err != nil {
 			return
@@ -125,8 +111,8 @@ func handleRequest(ctx context.Context, request events.SQSEvent) (err error) {
 					MeasureName:      aws.String(event.Name),
 					MeasureValue:     aws.String(event.Value),
 					MeasureValueType: aws.String(event.ValueType),
-					Time:             &result.Time,
-					TimeUnit:         aws.String(result.TimeUnit),
+					Time:             aws.String(strconv.FormatInt(result.Time.UnixNano(), 10)),
+					TimeUnit:         aws.String(timestreamwrite.TimeUnitNanoseconds),
 				}
 				records = append(records, &rec)
 			}
@@ -139,38 +125,6 @@ func handleRequest(ctx context.Context, request events.SQSEvent) (err error) {
 		err = writeRecordsToTimeStream(ctx, sess, records)
 	}
 
-	return
-}
-
-func writeResultEvents(ctx context.Context, sess *session.Session, results []Result) (err error) {
-	ddbTableName := os.Getenv("DYNAMODB_EVENTS_TABLE_NAME")
-	svc := dynamodb.New(session.New())
-
-	for _, result := range results {
-		nano, _err := strconv.ParseInt(result.Time, 10, 0)
-		if _err != nil {
-			err = _err
-			return
-		}
-
-		event := MonitorEvent{
-			MonitorID:   result.MonitorID,
-			Status:      result.Status,
-			Description: result.Description,
-			Date:        time.Unix(0, nano),
-		}
-		av, _err := dynamodbattribute.MarshalMap(event)
-		if _err != nil {
-			err = _err
-			return
-		}
-
-		_, err = svc.PutItem(&dynamodb.PutItemInput{
-			TableName: aws.String(ddbTableName),
-			Item:      av,
-		})
-
-	}
 	return
 }
 
@@ -197,13 +151,37 @@ func updateMonitorStatus(ctx context.Context, sess *session.Session, results []R
 		return
 	}
 
-	fmt.Printf("storing %d results to %s\n", len(results), ddbTableName)
+	fmt.Printf("updating %d statuses to %s\n", len(results), ddbTableName)
+
+	monitorIDs := []string{}
+	resultsByMonitorID := map[string]Result{}
+	batchGetKeys := []map[string]*dynamodb.AttributeValue{}
 
 	for _, result := range results {
+		monitorIDs = append(monitorIDs, result.MonitorID)
+		resultsByMonitorID[result.MonitorID] = result
+		batchGetKeys = append(batchGetKeys, map[string]*dynamodb.AttributeValue{
+			"id": {
+				S: aws.String(result.MonitorID),
+			},
+		})
+	}
+
+	monitors, err := getMonitorStatuses(ctx, sess, monitorIDs)
+	if err != nil {
+		return
+	}
+
+	for _, monitor := range monitors {
+		result := resultsByMonitorID[monitor.ID]
+		if monitor.Status == result.Status {
+			continue
+		}
 		input := &dynamodb.UpdateItemInput{
 			ExpressionAttributeNames: map[string]*string{
-				"#S":  aws.String("status"),
-				"#SD": aws.String("statusDescription"),
+				"#S":     aws.String("status"),
+				"#SDesc": aws.String("statusDescription"),
+				"#SDate": aws.String("statusDate"),
 			},
 			ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
 				":status": {
@@ -212,6 +190,9 @@ func updateMonitorStatus(ctx context.Context, sess *session.Session, results []R
 				":statusDescription": {
 					S: aws.String(result.Description),
 				},
+				":statusDate": {
+					S: aws.String(result.Time.Format(time.RFC3339)),
+				},
 			},
 			Key: map[string]*dynamodb.AttributeValue{
 				"id": {
@@ -219,10 +200,44 @@ func updateMonitorStatus(ctx context.Context, sess *session.Session, results []R
 				},
 			},
 			TableName:        aws.String(ddbTableName),
-			UpdateExpression: aws.String("SET #S = :status,#SD = :statusDescription"),
+			UpdateExpression: aws.String("SET #S = :status,#SDesc = :statusDescription,#SDate = :statusDate"),
 		}
 
-		_, err = svc.UpdateItem(input)
+		_, err = svc.UpdateItemWithContext(ctx, input)
 	}
+	return
+}
+
+func getMonitorStatuses(ctx context.Context, sess *session.Session, monitorIDs []string) (monitors []Monitor, err error) {
+	ddbTableName := os.Getenv("DYNAMODB_MONITORS_TABLE_NAME")
+	svc := dynamodb.New(session.New())
+	batchGetKeys := []map[string]*dynamodb.AttributeValue{}
+
+	for _, monitorID := range monitorIDs {
+		batchGetKeys = append(batchGetKeys, map[string]*dynamodb.AttributeValue{
+			"id": {
+				S: aws.String(monitorID),
+			},
+		})
+	}
+
+	batchGetItems := map[string]*dynamodb.KeysAndAttributes{}
+	batchGetItems[ddbTableName] = &dynamodb.KeysAndAttributes{
+		Keys:                 batchGetKeys,
+		ProjectionExpression: aws.String("id,#status"),
+		ExpressionAttributeNames: aws.StringMap(map[string]string{
+			"#status": "status",
+		}),
+	}
+	getItemsInput := &dynamodb.BatchGetItemInput{
+		RequestItems: batchGetItems,
+	}
+
+	items, err := svc.BatchGetItemWithContext(ctx, getItemsInput)
+	if err != nil {
+		return
+	}
+	monitors = []Monitor{}
+	err = dynamodbattribute.UnmarshalListOfMaps(items.Responses[ddbTableName], &monitors)
 	return
 }

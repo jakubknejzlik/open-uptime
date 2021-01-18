@@ -24,8 +24,8 @@ input MonitorUpdateInput {
 }
 
 enum MonitorStatus {
-    OK
-    ERROR
+    UP
+    DOWN
 }
 
 type Monitor {
@@ -38,6 +38,7 @@ type Monitor {
 
     status: MonitorStatus
     statusDescription: String
+    statusDate: AWSDateTime
 }
 
 type Mutation {

@@ -16,8 +16,8 @@ resource "aws_dynamodb_table" "monitors" {
   }
 }
 
-resource "aws_dynamodb_table" "events" {
-  name           = "OpenuptimeEvents"
+resource "aws_dynamodb_table" "alerts" {
+  name           = "OpenuptimeAlerts"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "monitorId"
   range_key = "date"

@@ -65,7 +65,6 @@ resource "aws_iam_role_policy" "results" {
       ],
       "Effect": "Allow",
       "Resource": [
-        "${aws_dynamodb_table.events.arn}",
         "${aws_dynamodb_table.monitors.arn}"
       ]
     },
@@ -98,7 +97,6 @@ resource "aws_lambda_function" "results" {
     variables = {
       TIMESTREAM_DATABASE_NAME = "openuptime"
       TIMESTREAM_TABLE_NAME    = "monitors"
-      DYNAMODB_EVENTS_TABLE_NAME = "OpenuptimeEvents"
       DYNAMODB_MONITORS_TABLE_NAME = "OpenuptimeMonitors"
     }
   }

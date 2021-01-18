@@ -43,6 +43,15 @@ resource "aws_iam_role_policy" "alert" {
     },
     {
       "Action": [
+        "dynamodb:PutItem"
+      ],
+      "Effect": "Allow",
+      "Resource": [
+        "${aws_dynamodb_table.alerts.arn}"
+      ]
+    },
+    {
+      "Action": [
         "events:PutEvents"
       ],
       "Effect": "Allow",
@@ -78,6 +87,7 @@ resource "aws_lambda_function" "alert" {
   environment {
     variables = {
       EVENTBRIDGE_BUS_NAME="openuptime"
+      DYNAMODB_ALERTS_TABLE_NAME = "OpenuptimeAlerts"
     }
   }
 

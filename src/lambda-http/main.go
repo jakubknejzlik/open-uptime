@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"strconv"
 	"sync"
 	"time"
 
@@ -42,8 +41,7 @@ type Result struct {
 	Events      []ResultEvent `json:"events"`
 	Status      string        `json:"status"`
 	Description string        `json:"description"`
-	Time        string        `json:"time"`
-	TimeUnit    string        `json:"timeUnit"`
+	Time        time.Time     `json:"time"`
 }
 
 func main() {
@@ -120,25 +118,23 @@ func getRecordsForMessage(ctx context.Context, message events.SQSMessage) (resul
 		return
 	}
 
-	recs, err := getTSRecordForMonitor(ctx, monitor)
-	time := strconv.FormatInt(time.Now().UnixNano(), 10)
+	recs, err := getEventsForMonitor(ctx, monitor)
+	now := time.Now()
 	if err != nil {
 		result = Result{
 			MonitorID:   monitor.ID,
 			Events:      recs,
-			Status:      "ERROR",
+			Status:      "DOWN",
 			Description: err.Error(),
-			Time:        time,
-			TimeUnit:    timestreamwrite.TimeUnitNanoseconds,
+			Time:        now,
 		}
 	} else {
 		result = Result{
 			MonitorID:   monitor.ID,
 			Events:      recs,
-			Status:      "SUCCESS",
-			Description: "OK",
-			Time:        time,
-			TimeUnit:    timestreamwrite.TimeUnitNanoseconds,
+			Status:      "UP",
+			Description: "",
+			Time:        now,
 		}
 	}
 	err = nil
@@ -146,7 +142,7 @@ func getRecordsForMessage(ctx context.Context, message events.SQSMessage) (resul
 	return
 }
 
-func getTSRecordForMonitor(ctx context.Context, monitor Monitor) (res []ResultEvent, err error) {
+func getEventsForMonitor(ctx context.Context, monitor Monitor) (res []ResultEvent, err error) {
 	monitorConfig := MonitorConfig{}
 	mapstructure.Decode(monitor.Config, &monitorConfig)
 	if err != nil {
@@ -192,7 +188,7 @@ func getTSRecordForMonitor(ctx context.Context, monitor Monitor) (res []ResultEv
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
-		err = fmt.Errorf("Unexpected status code %d", resp.StatusCode)
+		err = fmt.Errorf("Unexpected status code %d from URL %s", resp.StatusCode, monitorConfig.URL)
 	}
 
 	return
