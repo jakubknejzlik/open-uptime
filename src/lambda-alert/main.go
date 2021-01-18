@@ -70,6 +70,10 @@ func handleRequest(ctx context.Context, request events.DynamoDBEvent) (err error
 		if record.EventName == string(events.DynamoDBOperationTypeModify) {
 			oldStatus := record.Change.OldImage["status"].String()
 			newStatus := record.Change.NewImage["status"].String()
+			if oldStatus == newStatus {
+				continue
+			}
+
 			ID := record.Change.NewImage["id"].String()
 			name := record.Change.NewImage["name"].String()
 			statusDescription := record.Change.NewImage["statusDescription"].String()
