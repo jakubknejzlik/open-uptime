@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
+	"github.com/aws/aws-xray-sdk-go/xray"
 	cron "github.com/robfig/cron/v3"
 )
 
@@ -41,6 +42,8 @@ func handleRequest(ctx context.Context, request events.CloudWatchEvent) (err err
 	// dynDB := dynamodb.NewFromConfig(cfg)
 	dynDB := dynamodb.New(sess)
 	sqsSvc := sqs.NewFromConfig(cfg)
+	xray.AWS(dynDB.Client)
+	// xray.AWS(sqsSvc.Client)
 
 	resp, err := dynDB.ScanWithContext(ctx, &dynamodb.ScanInput{
 		TableName: aws.String(tableName),
@@ -96,6 +99,11 @@ func handleRequest(ctx context.Context, request events.CloudWatchEvent) (err err
 }
 
 func main() {
+	xray.Configure(xray.Config{
+		DaemonAddr:     "127.0.0.1:2000", // default
+		ServiceVersion: "1.2.3",
+	})
+
 	if os.Getenv("AWS_LAMBDA_FUNCTION_NAME") == "" {
 		fmt.Println("empty AWS_LAMBDA_FUNCTION_NAME", os.Getenv("AWS_LAMBDA_FUNCTION_NAME"))
 		err := handleRequest(context.Background(), events.CloudWatchEvent{})

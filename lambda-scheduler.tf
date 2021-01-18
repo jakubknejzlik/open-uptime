@@ -64,6 +64,14 @@ resource "aws_iam_role_policy" "scheduler" {
 EOF
 }
 
+data "aws_iam_policy" "aws_xray_write_only_access" {
+  arn = "arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess"
+}
+resource "aws_iam_role_policy_attachment" "aws_xray_write_only_access" {
+  role       = aws_iam_role.scheduler.name
+  policy_arn = data.aws_iam_policy.aws_xray_write_only_access.arn
+}
+
 resource "aws_lambda_function" "scheduler" {
   filename      = ".tmp/lambda-scheduler.zip"
   function_name = "openuptime-scheduler"
@@ -74,6 +82,10 @@ resource "aws_lambda_function" "scheduler" {
   source_code_hash = data.archive_file.lambda-scheduler.output_base64sha256
 
   runtime = "go1.x"
+
+  tracing_config {
+    mode = "Active"
+  }
 
   environment {
     variables = {
