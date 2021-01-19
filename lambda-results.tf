@@ -95,9 +95,9 @@ resource "aws_lambda_function" "results" {
 
   environment {
     variables = {
-      TIMESTREAM_DATABASE_NAME = "openuptime"
-      TIMESTREAM_TABLE_NAME    = "monitors"
-      DYNAMODB_MONITORS_TABLE_NAME = "OpenuptimeMonitors"
+      TIMESTREAM_DATABASE_NAME     = "openuptime"
+      TIMESTREAM_TABLE_NAME        = "monitors"
+      DYNAMODB_MONITORS_TABLE_NAME = aws_dynamodb_table.monitors.id
     }
   }
 

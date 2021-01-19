@@ -47,6 +47,12 @@ func handleRequest(ctx context.Context, request events.CloudWatchEvent) (err err
 
 	resp, err := dynDB.ScanWithContext(ctx, &dynamodb.ScanInput{
 		TableName: aws.String(tableName),
+		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
+			":a": {
+				S: aws.String("MONITOR"),
+			},
+		},
+		FilterExpression: aws.String("SK = :a"),
 	})
 
 	if err != nil {
@@ -99,10 +105,10 @@ func handleRequest(ctx context.Context, request events.CloudWatchEvent) (err err
 }
 
 func main() {
-	xray.Configure(xray.Config{
-		DaemonAddr:     "127.0.0.1:2000", // default
-		ServiceVersion: "1.2.3",
-	})
+	// xray.Configure(xray.Config{
+	// 	DaemonAddr:     "127.0.0.1:2000", // default
+	// 	ServiceVersion: "1.2.3",
+	// })
 
 	if os.Getenv("AWS_LAMBDA_FUNCTION_NAME") == "" {
 		fmt.Println("empty AWS_LAMBDA_FUNCTION_NAME", os.Getenv("AWS_LAMBDA_FUNCTION_NAME"))

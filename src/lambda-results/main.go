@@ -155,16 +155,10 @@ func updateMonitorStatus(ctx context.Context, sess *session.Session, results []R
 
 	monitorIDs := []string{}
 	resultsByMonitorID := map[string]Result{}
-	batchGetKeys := []map[string]*dynamodb.AttributeValue{}
 
 	for _, result := range results {
 		monitorIDs = append(monitorIDs, result.MonitorID)
 		resultsByMonitorID[result.MonitorID] = result
-		batchGetKeys = append(batchGetKeys, map[string]*dynamodb.AttributeValue{
-			"id": {
-				S: aws.String(result.MonitorID),
-			},
-		})
 	}
 
 	monitors, err := getMonitorStatuses(ctx, sess, monitorIDs)
@@ -195,8 +189,11 @@ func updateMonitorStatus(ctx context.Context, sess *session.Session, results []R
 				},
 			},
 			Key: map[string]*dynamodb.AttributeValue{
-				"id": {
+				"PK": {
 					S: aws.String(result.MonitorID),
+				},
+				"SK": {
+					S: aws.String("MONITOR"),
 				},
 			},
 			TableName:        aws.String(ddbTableName),
@@ -215,8 +212,11 @@ func getMonitorStatuses(ctx context.Context, sess *session.Session, monitorIDs [
 
 	for _, monitorID := range monitorIDs {
 		batchGetKeys = append(batchGetKeys, map[string]*dynamodb.AttributeValue{
-			"id": {
+			"PK": {
 				S: aws.String(monitorID),
+			},
+			"SK": {
+				S: aws.String("MONITOR"),
 			},
 		})
 	}

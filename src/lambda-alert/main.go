@@ -24,6 +24,8 @@ type Monitor struct {
 }
 
 type MonitorEvent struct {
+	PK          string    `json:"PK"`
+	SK          string    `json:"SK"`
 	MonitorID   string    `json:"monitorId"`
 	Status      string    `json:"status"`
 	Description string    `json:"description"`
@@ -141,6 +143,8 @@ func writeDynamoDBAlert(ctx context.Context, sess *session.Session, monitors []M
 
 	for _, monitor := range monitors {
 		event := MonitorEvent{
+			PK:          monitor.ID,
+			SK:          fmt.Sprintf("ALERT#%s", now.Format(time.RFC3339)),
 			MonitorID:   monitor.ID,
 			Status:      monitor.Status,
 			Description: monitor.StatusDescription,

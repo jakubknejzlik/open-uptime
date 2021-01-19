@@ -84,7 +84,8 @@ resource "aws_appsync_resolver" "get-monitor" {
     "version": "2017-02-28",
     "operation": "GetItem",
     "key": {
-        "id": $util.dynamodb.toDynamoDBJson($ctx.args.id),
+        "PK": $util.dynamodb.toDynamoDBJson($ctx.args.id),
+        "SK": $util.dynamodb.toDynamoDBJson("MONITOR"),
     }
 }
 EOF
@@ -105,10 +106,15 @@ resource "aws_appsync_resolver" "create-monitor" {
 {
     "version" : "2017-02-28",
     "operation" : "PutItem",
+
+    #set( $monitorId = $util.dynamodb.toDynamoDBJson($util.defaultIfNullOrEmpty($ctx.arguments.input.id,$util.autoId())) )
+
     "key": {
-        "id": $util.dynamodb.toDynamoDBJson($util.defaultIfNullOrEmpty($ctx.arguments.input.id,$util.autoId())),
+        "PK": $monitorId,
+        "SK": $util.dynamodb.toDynamoDBJson("MONITOR"),
     },
     "attributeValues" : {
+        "id": $monitorId,
         "name" : $util.dynamodb.toDynamoDBJson($ctx.arguments.input.name),
         "schedule" : $util.dynamodb.toDynamoDBJson($ctx.arguments.input.schedule),
         "config" : $util.dynamodb.toDynamoDBJson($ctx.arguments.input.config),
@@ -135,7 +141,8 @@ resource "aws_appsync_resolver" "update-monitor" {
     "version" : "2017-02-28",
     "operation" : "UpdateItem",
     "key" : {
-        "id" : $util.dynamodb.toDynamoDBJson($context.arguments.id)
+        "PK" : $util.dynamodb.toDynamoDBJson($context.arguments.id)
+        "SK": $util.dynamodb.toDynamoDBJson("MONITOR"),
     },
 
     ## Set up some space to keep track of things you're updating **
@@ -238,7 +245,8 @@ resource "aws_appsync_resolver" "delete-monitor" {
     "version": "2017-02-28",
     "operation": "DeleteItem",
     "key": {
-        "id": $util.dynamodb.toDynamoDBJson($ctx.args.id),
+        "PK": $util.dynamodb.toDynamoDBJson($ctx.args.id),
+        "SK": $util.dynamodb.toDynamoDBJson("MONITOR"),
     }
 }
 EOF

@@ -47,7 +47,7 @@ resource "aws_iam_role_policy" "alert" {
       ],
       "Effect": "Allow",
       "Resource": [
-        "${aws_dynamodb_table.alerts.arn}"
+        "${aws_dynamodb_table.events.arn}"
       ]
     },
     {
@@ -86,8 +86,8 @@ resource "aws_lambda_function" "alert" {
 
   environment {
     variables = {
-      EVENTBRIDGE_BUS_NAME="openuptime"
-      DYNAMODB_ALERTS_TABLE_NAME = "OpenuptimeAlerts"
+      EVENTBRIDGE_BUS_NAME       = "openuptime"
+      DYNAMODB_ALERTS_TABLE_NAME = aws_dynamodb_table.events.id
     }
   }
 
@@ -97,7 +97,7 @@ resource "aws_lambda_function" "alert" {
 }
 
 resource "aws_lambda_event_source_mapping" "alert" {
-  event_source_arn = aws_dynamodb_table.monitors.stream_arn
-  function_name    = aws_lambda_function.alert.arn
+  event_source_arn  = aws_dynamodb_table.monitors.stream_arn
+  function_name     = aws_lambda_function.alert.arn
   starting_position = "LATEST"
 }
