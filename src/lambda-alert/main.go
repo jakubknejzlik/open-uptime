@@ -17,10 +17,11 @@ import (
 )
 
 type Monitor struct {
-	ID                string `json:"id"`
-	Name              string `json:"name"`
-	Status            string `json:"status"`
-	StatusDescription string `json:"statusDescription"`
+	ID                string     `json:"id"`
+	Name              string     `json:"name"`
+	Status            string     `json:"status"`
+	StatusDescription string     `json:"statusDescription"`
+	PrevStatusDate    *time.Time `json:"prevStatusDate"`
 }
 
 type MonitorEvent struct {
@@ -40,7 +41,8 @@ func main() {
 				EventName: string(events.DynamoDBOperationTypeModify),
 				Change: events.DynamoDBStreamRecord{
 					OldImage: map[string]events.DynamoDBAttributeValue{
-						"status": events.NewStringAttribute("UP"),
+						"status":     events.NewStringAttribute("UP"),
+						"statusDate": events.NewStringAttribute(time.Now().Format(time.RFC3339Nano)),
 					},
 					NewImage: map[string]events.DynamoDBAttributeValue{
 						"status":            events.NewStringAttribute("DOWN"),
@@ -71,6 +73,8 @@ func handleRequest(ctx context.Context, request events.DynamoDBEvent) (err error
 	for _, record := range request.Records {
 		if record.EventName == string(events.DynamoDBOperationTypeModify) {
 			oldStatus := record.Change.OldImage["status"].String()
+			_, oldDateSet := record.Change.OldImage["statusDate"]
+			oldStatusDate := record.Change.OldImage["statusDate"].String()
 			newStatus := record.Change.NewImage["status"].String()
 			if oldStatus == newStatus {
 				continue
@@ -79,13 +83,23 @@ func handleRequest(ctx context.Context, request events.DynamoDBEvent) (err error
 			ID := record.Change.NewImage["id"].String()
 			name := record.Change.NewImage["name"].String()
 			statusDescription := record.Change.NewImage["statusDescription"].String()
-			fmt.Println(oldStatus, "=>", newStatus)
+			var statusDate *time.Time
+			if oldDateSet {
+				_statusDate, _err := time.Parse(time.RFC3339Nano, oldStatusDate)
+				if _err != nil {
+					err = _err
+					return
+				}
+				statusDate = &_statusDate
+			}
+			fmt.Println(oldStatus, "=>", newStatus, statusDate)
 
 			monitor := Monitor{
 				ID:                ID,
 				Name:              name,
 				Status:            newStatus,
 				StatusDescription: statusDescription,
+				PrevStatusDate:    statusDate,
 			}
 			monitors = append(monitors, monitor)
 		}
