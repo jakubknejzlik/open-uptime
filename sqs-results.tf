@@ -25,16 +25,16 @@ resource "aws_sqs_queue" "results-dlq" {
 }
 
 resource "aws_sns_topic_subscription" "results-sns-to-sqs" {
-  topic_arn = aws_sns_topic.results.arn
-  protocol  = "sqs"
-  endpoint  = aws_sqs_queue.results.arn
+  topic_arn            = aws_sns_topic.results.arn
+  protocol             = "sqs"
+  endpoint             = aws_sqs_queue.results.arn
   raw_message_delivery = true
 }
 
 resource "aws_sqs_queue_policy" "results" {
-    queue_url = aws_sqs_queue.results.id
+  queue_url = aws_sqs_queue.results.id
 
-    policy = <<POLICY
+  policy = <<POLICY
 {
   "Version": "2012-10-17",
   "Statement": [{
@@ -50,11 +50,5 @@ resource "aws_sqs_queue_policy" "results" {
   }]
 }
 POLICY
-}
-
-# used to retrieve queue url
-data "aws_sqs_queue" "results" {
-  depends_on = [ aws_sqs_queue.results ]
-  name = "openuptime-results"
 }
 

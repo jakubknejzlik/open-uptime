@@ -23,9 +23,3 @@ resource "aws_sqs_queue" "schedules-dlq" {
   message_retention_seconds = 86400
   receive_wait_time_seconds = 10
 }
-
-# used to retrieve queue url
-data "aws_sqs_queue" "schedules" {
-  depends_on = [ aws_sqs_queue.schedules ]
-  name = "openuptime-schedules"
-}

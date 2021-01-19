@@ -6,19 +6,9 @@ resource "aws_cloudwatch_event_bus" "main" {
   }
 }
 
-resource "aws_sqs_queue" "test" {
-  name                       = "openuptime-test"
-  visibility_timeout_seconds = "60"
-  receive_wait_time_seconds  = "20"
-
-  tags = {
-    app = "openuptime"
-  }
-}
-
 resource "aws_cloudwatch_event_rule" "monitor-alert" {
-  name        = "capture-monitor-alerts"
-  description = "Capture monitor alert events"
+  name           = "capture-monitor-alerts"
+  description    = "Capture monitor alert events"
   event_bus_name = "openuptime"
 
   event_pattern = <<EOF
