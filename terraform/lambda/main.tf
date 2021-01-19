@@ -48,7 +48,7 @@ resource "aws_lambda_function" "lambda" {
   handler       = var.handler
   timeout       = "50"
 
-  source_code_hash = filemd5(var.filename)
+  source_code_hash = filebase64sha256(var.filename)
 
   runtime = "go1.x"
 
