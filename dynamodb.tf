@@ -4,9 +4,6 @@ resource "aws_dynamodb_table" "monitors" {
   hash_key     = "PK"
   range_key    = "SK"
 
-  stream_enabled   = true
-  stream_view_type = "NEW_AND_OLD_IMAGES"
-
   attribute {
     name = "PK"
     type = "S"

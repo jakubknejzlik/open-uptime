@@ -10,7 +10,7 @@ module "handler-alert" {
   filename = ".tmp/lambda-alert.zip"
   handler  = "lambda-alert"
 
-  event_source_dynamodb_stream_arn = aws_dynamodb_table.monitors.stream_arn
+  event_source_sns_arn = aws_sns_topic.status-changes.arn
 
   environment_variables = {
     EVENTBRIDGE_BUS_NAME       = "openuptime"

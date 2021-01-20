@@ -1,6 +1,9 @@
 resource "aws_sns_topic" "results" {
   name = "openuptime-results"
 }
+resource "aws_sns_topic" "status-changes" {
+  name = "openuptime-status-changes"
+}
 data "archive_file" "lambda-results" {
   type        = "zip"
   source_file = ".tmp/lambda-results"
@@ -20,6 +23,7 @@ module "results" {
     TIMESTREAM_DATABASE_NAME     = "openuptime"
     TIMESTREAM_TABLE_NAME        = "monitors"
     DYNAMODB_MONITORS_TABLE_NAME = aws_dynamodb_table.monitors.id
+    SNS_ARN_STATUS_CHANGES       = aws_sns_topic.status-changes.arn
   }
 
   policy = <<EOF
@@ -60,6 +64,15 @@ module "results" {
       "Effect": "Allow",
       "Resource": [
         "${aws_dynamodb_table.monitors.arn}"
+      ]
+    },
+    {
+      "Action": [
+        "sns:Publish"
+      ],
+      "Effect": "Allow",
+      "Resource": [
+        "${aws_sns_topic.status-changes.arn}"
       ]
     }
   ]

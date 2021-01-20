@@ -16,43 +16,71 @@ import (
 	"github.com/aws/aws-sdk-go/service/eventbridge"
 )
 
-type Monitor struct {
-	ID                string     `json:"id"`
-	Name              string     `json:"name"`
-	Status            string     `json:"status"`
-	StatusDescription string     `json:"statusDescription"`
-	PrevStatusDate    *time.Time `json:"prevStatusDate"`
+type ResultEvent struct {
+	Name      string `json:"name"`
+	Value     string `json:"value"`
+	ValueType string `json:"valueType"`
+}
+type Result struct {
+	MonitorID   string        `json:"monitorId"`
+	Events      []ResultEvent `json:"events"`
+	Status      string        `json:"status"`
+	Description string        `json:"description"`
+	Time        time.Time     `json:"time"`
+}
+type StatusChange struct {
+	Monitor Monitor
+	Result  Result
 }
 
-type MonitorEvent struct {
-	PK          string    `json:"PK"`
-	SK          string    `json:"SK"`
-	MonitorID   string    `json:"monitorId"`
-	Status      string    `json:"status"`
-	Description string    `json:"description"`
-	Date        time.Time `json:"date"`
+type Monitor struct {
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	Status     string     `json:"status"`
+	StatusDate *time.Time `json:"statusDate"`
+}
+
+type MonitorAlert struct {
+	PK             string     `json:"PK"`
+	SK             string     `json:"SK"`
+	MonitorID      string     `json:"monitorId"`
+	EntityType     string     `json:"entityType"`
+	Status         string     `json:"status"`
+	Description    string     `json:"description"`
+	Date           time.Time  `json:"date"`
+	PrevStatusDate *time.Time `json:"prevStatusDate"`
 }
 
 func main() {
 	if os.Getenv("AWS_LAMBDA_FUNCTION_NAME") == "" {
 		fmt.Println("empty AWS_LAMBDA_FUNCTION_NAME", os.Getenv("AWS_LAMBDA_FUNCTION_NAME"))
-		err := handleRequest(context.Background(), events.DynamoDBEvent{Records: []events.DynamoDBEventRecord{
-			{
-				EventName: string(events.DynamoDBOperationTypeModify),
-				Change: events.DynamoDBStreamRecord{
-					OldImage: map[string]events.DynamoDBAttributeValue{
-						"status":     events.NewStringAttribute("UP"),
-						"statusDate": events.NewStringAttribute(time.Now().Format(time.RFC3339Nano)),
-					},
-					NewImage: map[string]events.DynamoDBAttributeValue{
-						"status":            events.NewStringAttribute("DOWN"),
-						"id":                events.NewStringAttribute("test"),
-						"name":              events.NewStringAttribute("test"),
-						"statusDescription": events.NewStringAttribute("something bad happened"),
+		now := time.Now()
+		statusChange := StatusChange{
+			Monitor: Monitor{
+				ID:         "local-test",
+				Name:       "test",
+				Status:     "UP",
+				StatusDate: &now,
+			},
+			Result: Result{
+				MonitorID:   "test",
+				Events:      []ResultEvent{},
+				Status:      "DOWN",
+				Description: "testing",
+				Time:        now,
+			},
+		}
+		message, _ := json.Marshal(statusChange)
+		request := events.SNSEvent{
+			Records: []events.SNSEventRecord{
+				{
+					SNS: events.SNSEntity{
+						Message: string(message),
 					},
 				},
 			},
-		}})
+		}
+		err := handleRequest(context.Background(), request)
 		if err != nil {
 			panic(err)
 		}
@@ -61,56 +89,27 @@ func main() {
 	}
 }
 
-func handleRequest(ctx context.Context, request events.DynamoDBEvent) (err error) {
+func handleRequest(ctx context.Context, request events.SNSEvent) (err error) {
 
 	sess, err := session.NewSession(&aws.Config{})
 	if err != nil {
 		return
 	}
 
-	monitors := []Monitor{}
+	changesToNotify := []StatusChange{}
 
 	for _, record := range request.Records {
-		if record.EventName == string(events.DynamoDBOperationTypeModify) {
-			oldStatus := record.Change.OldImage["status"].String()
-			_, oldDateSet := record.Change.OldImage["statusDate"]
-			oldStatusDate := record.Change.OldImage["statusDate"].String()
-			newStatus := record.Change.NewImage["status"].String()
-			if oldStatus == newStatus {
-				continue
-			}
-
-			ID := record.Change.NewImage["id"].String()
-			name := record.Change.NewImage["name"].String()
-			statusDescription := record.Change.NewImage["statusDescription"].String()
-			var statusDate *time.Time
-			if oldDateSet {
-				_statusDate, _err := time.Parse(time.RFC3339Nano, oldStatusDate)
-				if _err != nil {
-					err = _err
-					return
-				}
-				statusDate = &_statusDate
-			}
-			fmt.Println(oldStatus, "=>", newStatus, statusDate)
-
-			monitor := Monitor{
-				ID:                ID,
-				Name:              name,
-				Status:            newStatus,
-				StatusDescription: statusDescription,
-				PrevStatusDate:    statusDate,
-			}
-			monitors = append(monitors, monitor)
-		}
+		statusChange := StatusChange{}
+		json.Unmarshal([]byte(record.SNS.Message), &statusChange)
+		changesToNotify = append(changesToNotify, statusChange)
 	}
 
-	if len(monitors) > 0 {
-		err = writeEventBridgeEvent(ctx, sess, monitors)
+	if len(changesToNotify) > 0 {
+		err = writeEventBridgeEvent(ctx, sess, changesToNotify)
 		if err != nil {
 			return
 		}
-		err = writeDynamoDBAlert(ctx, sess, monitors)
+		err = writeDynamoDBAlert(ctx, sess, changesToNotify)
 		if err != nil {
 			return
 		}
@@ -119,12 +118,12 @@ func handleRequest(ctx context.Context, request events.DynamoDBEvent) (err error
 	return
 }
 
-func writeEventBridgeEvent(ctx context.Context, sess *session.Session, monitors []Monitor) (err error) {
+func writeEventBridgeEvent(ctx context.Context, sess *session.Session, changes []StatusChange) (err error) {
 	eventBusName := os.Getenv("EVENTBRIDGE_BUS_NAME")
 	client := eventbridge.New(sess)
 
-	for _, monitor := range monitors {
-		jsonMonitor, _err := json.Marshal(monitor)
+	for _, change := range changes {
+		jsonMonitor, _err := json.Marshal(change)
 		if _err != nil {
 			err = _err
 			return
@@ -149,32 +148,32 @@ func writeEventBridgeEvent(ctx context.Context, sess *session.Session, monitors 
 	return
 }
 
-func writeDynamoDBAlert(ctx context.Context, sess *session.Session, monitors []Monitor) (err error) {
+func writeDynamoDBAlert(ctx context.Context, sess *session.Session, changes []StatusChange) (err error) {
 	ddbTableName := os.Getenv("DYNAMODB_ALERTS_TABLE_NAME")
 	svc := dynamodb.New(session.New())
 
 	now := time.Now()
 
-	for _, monitor := range monitors {
-		event := MonitorEvent{
-			PK:          monitor.ID,
-			SK:          fmt.Sprintf("ALERT#%s", now.Format(time.RFC3339)),
-			MonitorID:   monitor.ID,
-			Status:      monitor.Status,
-			Description: monitor.StatusDescription,
-			Date:        now,
+	for _, change := range changes {
+		event := MonitorAlert{
+			PK:             "m#" + change.Monitor.ID,
+			SK:             "a#" + now.Format(time.RFC3339),
+			MonitorID:      "m#" + change.Monitor.ID,
+			Status:         change.Result.Status,
+			Description:    change.Result.Description,
+			EntityType:     "MonitorAlert",
+			PrevStatusDate: change.Monitor.StatusDate,
+			Date:           change.Result.Time,
 		}
 		av, _err := dynamodbattribute.MarshalMap(event)
 		if _err != nil {
 			err = _err
 			return
 		}
-
 		_, err = svc.PutItem(&dynamodb.PutItemInput{
 			TableName: aws.String(ddbTableName),
 			Item:      av,
 		})
-
 	}
 	return
 }

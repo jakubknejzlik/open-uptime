@@ -17,15 +17,16 @@ import (
 
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
+	"github.com/aws/aws-sdk-go/service/sns"
 	"github.com/aws/aws-sdk-go/service/timestreamwrite"
 	"golang.org/x/net/http2"
 )
 
 type Monitor struct {
-	ID       string      `json:"id"`
-	Schedule string      `json:"schedule"`
-	Config   interface{} `json:"config"`
-	Status   string      `json:"status"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Status     string `json:"status"`
+	StatusDate string `json:"statusDate"`
 }
 
 type ResultEvent struct {
@@ -39,6 +40,10 @@ type Result struct {
 	Status      string        `json:"status"`
 	Description string        `json:"description"`
 	Time        time.Time     `json:"time"`
+}
+type StatusChange struct {
+	Monitor Monitor
+	Result  Result
 }
 
 func main() {
@@ -144,14 +149,12 @@ func writeRecordsToTimeStream(ctx context.Context, sess *session.Session, record
 }
 
 func updateMonitorStatus(ctx context.Context, sess *session.Session, results []Result) (err error) {
-	ddbTableName := os.Getenv("DYNAMODB_MONITORS_TABLE_NAME")
-	svc := dynamodb.New(session.New())
+	dynamoSVC := dynamodb.New(session.New())
+	snsSVC := sns.New(sess)
 
 	if len(results) == 0 {
 		return
 	}
-
-	fmt.Printf("updating %d statuses to %s\n", len(results), ddbTableName)
 
 	monitorIDs := []string{}
 	resultsByMonitorID := map[string]Result{}
@@ -171,37 +174,71 @@ func updateMonitorStatus(ctx context.Context, sess *session.Session, results []R
 		if monitor.Status == result.Status {
 			continue
 		}
-		input := &dynamodb.UpdateItemInput{
-			ExpressionAttributeNames: map[string]*string{
-				"#S":     aws.String("status"),
-				"#SDesc": aws.String("statusDescription"),
-				"#SDate": aws.String("statusDate"),
-			},
-			ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
-				":status": {
-					S: aws.String(result.Status),
-				},
-				":statusDescription": {
-					S: aws.String(result.Description),
-				},
-				":statusDate": {
-					S: aws.String(result.Time.Format(time.RFC3339)),
-				},
-			},
-			Key: map[string]*dynamodb.AttributeValue{
-				"PK": {
-					S: aws.String(result.MonitorID),
-				},
-				"SK": {
-					S: aws.String("MONITOR"),
-				},
-			},
-			TableName:        aws.String(ddbTableName),
-			UpdateExpression: aws.String("SET #S = :status,#SDesc = :statusDescription,#SDate = :statusDate"),
+		fmt.Printf("notifying %s, %s => %s\n", monitor.Name, monitor.Status, result.Status)
+		err = updateMonitorDynamoDBRecord(ctx, dynamoSVC, result)
+		if err != nil {
+			return
 		}
-
-		_, err = svc.UpdateItemWithContext(ctx, input)
+		err = sendStatusChangeNotification(ctx, snsSVC, monitor, result)
+		if err != nil {
+			return
+		}
 	}
+	return
+}
+
+func sendStatusChangeNotification(ctx context.Context, snsSVC *sns.SNS, monitor Monitor, result Result) (err error) {
+	snsARN := os.Getenv("SNS_ARN_STATUS_CHANGES")
+	statusChange := StatusChange{
+		Monitor: monitor,
+		Result:  result,
+	}
+	jsonPayload, _err := json.Marshal(statusChange)
+	if _err != nil {
+		err = _err
+		return
+	}
+	input := &sns.PublishInput{
+		Message:  aws.String(string(jsonPayload)),
+		TopicArn: aws.String(snsARN),
+	}
+
+	_, err = snsSVC.PublishWithContext(ctx, input)
+	return
+}
+
+func updateMonitorDynamoDBRecord(ctx context.Context, svc *dynamodb.DynamoDB, result Result) (err error) {
+	ddbTableName := os.Getenv("DYNAMODB_MONITORS_TABLE_NAME")
+	input := &dynamodb.UpdateItemInput{
+		ExpressionAttributeNames: map[string]*string{
+			"#S":     aws.String("status"),
+			"#SDesc": aws.String("statusDescription"),
+			"#SDate": aws.String("statusDate"),
+		},
+		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
+			":status": {
+				S: aws.String(result.Status),
+			},
+			":statusDescription": {
+				S: aws.String(result.Description),
+			},
+			":statusDate": {
+				S: aws.String(result.Time.Format(time.RFC3339)),
+			},
+		},
+		Key: map[string]*dynamodb.AttributeValue{
+			"PK": {
+				S: aws.String(result.MonitorID),
+			},
+			"SK": {
+				S: aws.String("MONITOR"),
+			},
+		},
+		TableName:        aws.String(ddbTableName),
+		UpdateExpression: aws.String("SET #S = :status,#SDesc = :statusDescription,#SDate = :statusDate"),
+	}
+
+	_, err = svc.UpdateItemWithContext(ctx, input)
 	return
 }
 
@@ -224,9 +261,10 @@ func getMonitorStatuses(ctx context.Context, sess *session.Session, monitorIDs [
 	batchGetItems := map[string]*dynamodb.KeysAndAttributes{}
 	batchGetItems[ddbTableName] = &dynamodb.KeysAndAttributes{
 		Keys:                 batchGetKeys,
-		ProjectionExpression: aws.String("id,#status"),
+		ProjectionExpression: aws.String("id,#status,statusDate,#name"),
 		ExpressionAttributeNames: aws.StringMap(map[string]string{
 			"#status": "status",
+			"#name":   "name",
 		}),
 	}
 	getItemsInput := &dynamodb.BatchGetItemInput{

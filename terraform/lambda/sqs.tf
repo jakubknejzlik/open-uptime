@@ -1,4 +1,4 @@
-resource "aws_lambda_event_source_mapping" "lambda" {
+resource "aws_lambda_event_source_mapping" "sqs" {
   count            = var.event_source_sqs_arn != "" ? 1 : 0
   event_source_arn = var.event_source_sqs_arn
   function_name    = aws_lambda_function.lambda.arn
@@ -16,7 +16,7 @@ resource "aws_iam_role_policy_attachment" "lambda_sqs_queue_execution" {
 }
 
 # resource "aws_iam_role_policy" "lambda" {
-#   count = var.policy != "" ? 1 : 0
+#   count = var.event_source_sqs_arn != "" ? 1 : 0
 #   name  = "${var.name}-sqs"
 #   role  = aws_iam_role.lambda.id
 

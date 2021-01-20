@@ -92,7 +92,6 @@ func handleRequest(ctx context.Context, request events.SQSEvent) (err error) {
 	fmt.Println("results to send:", len(results))
 
 	if len(results) > 0 {
-
 		jsonPayload, _err := json.Marshal(results)
 		if _err != nil {
 			err = _err
@@ -107,7 +106,7 @@ func handleRequest(ctx context.Context, request events.SQSEvent) (err error) {
 			TopicArn: aws.String(snsARN),
 		}
 
-		_, err = client.Publish(input)
+		_, err = client.PublishWithContext(ctx, input)
 	}
 	return
 }

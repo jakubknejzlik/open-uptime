@@ -43,6 +43,11 @@ variable "event_source_sqs_arn" {
   default     = ""
   description = "ARN of SQS queue to be used as lambda event source"
 }
+variable "event_source_sns_arn" {
+  type        = string
+  default     = ""
+  description = "ARN of SNS topic to be used as lambda event source"
+}
 
 variable "event_source_dynamodb_stream_arn" {
   type        = string
