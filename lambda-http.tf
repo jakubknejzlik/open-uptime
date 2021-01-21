@@ -11,13 +11,17 @@ module "handler-http" {
   filename = ".tmp/lambda-http.zip"
   handler  = "lambda-http"
 
-  event_source_sqs_arn = aws_sqs_queue.schedules.arn
+  event = {
+    type       = "sqs"
+    source_arn = aws_sqs_queue.schedules.arn
+  }
 
   environment_variables = {
     SNS_ARN = aws_sns_topic.results.arn
   }
 
-  policy = <<EOF
+  hasPolicy = true
+  policy    = <<EOF
 {
   "Version": "2012-10-17",
   "Statement": [

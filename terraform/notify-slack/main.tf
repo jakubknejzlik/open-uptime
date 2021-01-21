@@ -11,9 +11,7 @@ module "notify-slack" {
   filename = ".tmp/lambda-notify-slack.zip"
   handler  = "lambda-notify-slack"
 
-  cloudwatch_event_target_bus_name = var.cloudwatch_event_target_bus_name
-  cloudwatch_event_target_rule_arn = var.cloudwatch_event_target_rule_arn
-  cloudwatch_event_target_rule_id  = var.cloudwatch_event_target_rule_id
+  event = var.event
 
   environment_variables = {
     SLACK_URL     = var.slack_url

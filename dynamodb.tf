@@ -1,8 +1,11 @@
-resource "aws_dynamodb_table" "monitors" {
-  name         = "OpenuptimeMonitors"
+resource "aws_dynamodb_table" "main" {
+  name         = "Openuptime"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "PK"
   range_key    = "SK"
+
+  # stream_enabled   = true
+  # stream_view_type = "NEW_AND_OLD_IMAGES"
 
   attribute {
     name = "PK"
@@ -12,32 +15,26 @@ resource "aws_dynamodb_table" "monitors" {
     name = "SK"
     type = "S"
   }
-
-  tags = {
-    app = "openuptime"
-  }
-}
-
-resource "aws_dynamodb_table" "events" {
-  name         = "OpenuptimeEvents"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "PK"
-  range_key    = "SK"
-
   attribute {
-    name = "PK"
+    name = "GSI1PK"
     type = "S"
   }
   attribute {
-    name = "SK"
+    name = "GSI1SK"
     type = "S"
+  }
+
+  global_secondary_index {
+    name            = "ByOrg"
+    hash_key        = "GSI1PK"
+    range_key       = "GSI1SK"
+    projection_type = "ALL"
   }
 
   tags = {
     app = "openuptime"
   }
 }
-
 resource "aws_iam_role" "monitors" {
   name = "openuptime-monitors"
 
@@ -79,7 +76,7 @@ resource "aws_iam_role_policy" "monitors" {
       ],
       "Effect": "Allow",
       "Resource": [
-        "${aws_dynamodb_table.monitors.arn}"
+        "${aws_dynamodb_table.main.arn}"
       ]
     }
   ]

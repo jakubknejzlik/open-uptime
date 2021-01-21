@@ -10,14 +10,19 @@ module "handler-alert" {
   filename = ".tmp/lambda-alert.zip"
   handler  = "lambda-alert"
 
-  event_source_sns_arn = aws_sns_topic.status-changes.arn
-
-  environment_variables = {
-    EVENTBRIDGE_BUS_NAME       = "openuptime"
-    DYNAMODB_ALERTS_TABLE_NAME = aws_dynamodb_table.events.id
+  event = {
+    type       = "sns"
+    source_arn = aws_sns_topic.status-changes.arn
   }
 
-  policy = <<EOF
+
+  environment_variables = {
+    EVENTBRIDGE_BUS_NAME = "openuptime"
+    DYNAMODB_TABLE_NAME  = aws_dynamodb_table.main.id
+  }
+
+  hasPolicy = true
+  policy    = <<EOF
 {
   "Version": "2012-10-17",
   "Statement": [
@@ -27,7 +32,7 @@ module "handler-alert" {
       ],
       "Effect": "Allow",
       "Resource": [
-        "${aws_dynamodb_table.events.arn}"
+        "${aws_dynamodb_table.main.arn}"
       ]
     },
     {

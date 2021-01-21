@@ -10,6 +10,8 @@ plan:
 
 apply:	
 	terraform apply
+destroy:	
+	terraform destroy
 
 build-lambda-scheduler:
 	cd src/lambda-scheduler && GOOS=linux GOARCH=amd64 go build -o ../../.tmp/lambda-scheduler *.go

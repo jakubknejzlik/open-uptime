@@ -16,7 +16,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
-	"github.com/aws/aws-xray-sdk-go/xray"
 	cron "github.com/robfig/cron/v3"
 )
 
@@ -42,19 +41,23 @@ func handleRequest(ctx context.Context, request events.CloudWatchEvent) (err err
 	// dynDB := dynamodb.NewFromConfig(cfg)
 	dynDB := dynamodb.New(sess)
 	sqsSvc := sqs.NewFromConfig(cfg)
-	xray.AWS(dynDB.Client)
+	// xray.AWS(dynDB.Client)
 	// xray.AWS(sqsSvc.Client)
 
-	resp, err := dynDB.ScanWithContext(ctx, &dynamodb.ScanInput{
-		TableName: aws.String(tableName),
+	resp, err := dynDB.QueryWithContext(ctx, &dynamodb.QueryInput{
+		TableName:              aws.String(tableName),
+		IndexName:              aws.String("ByOrg"),
+		KeyConditionExpression: aws.String("GSI1PK = :org AND begins_with(GSI1SK,:monitorPrefix)"),
 		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
-			":a": {
-				S: aws.String("MONITOR"),
+			":org": {
+				S: aws.String("org#default"),
+			},
+			":monitorPrefix": {
+				S: aws.String("m#"),
 			},
 		},
-		FilterExpression: aws.String("SK = :a"),
+		ReturnConsumedCapacity: aws.String("TOTAL"),
 	})
-
 	if err != nil {
 		// log.Fatalf("failed to query items, %v", err)
 		return
@@ -88,6 +91,7 @@ func handleRequest(ctx context.Context, request events.CloudWatchEvent) (err err
 				return
 			}
 
+			fmt.Println("sending", string(data))
 			sqsResp, sqsErr := sqsSvc.SendMessage(ctx, &sqs.SendMessageInput{
 				MessageBody: aws.String(string(data)),
 				QueueUrl:    &queueURL,

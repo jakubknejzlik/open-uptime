@@ -19,7 +19,7 @@ EOF
 }
 
 resource "aws_iam_role_policy" "lambda" {
-  count = var.policy != "" ? 1 : 0
+  count = var.hasPolicy ? 1 : 0
   name  = var.name
   role  = aws_iam_role.lambda.id
 

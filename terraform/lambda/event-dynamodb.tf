@@ -1,16 +1,16 @@
 resource "aws_lambda_event_source_mapping" "dynamodb" {
-  count             = var.event_source_dynamodb_stream_arn != "" ? 1 : 0
-  event_source_arn  = var.event_source_dynamodb_stream_arn
+  count             = lookup(var.event, "type", "") == "dynamodb" ? 1 : 0
+  event_source_arn  = lookup(var.event, "source_arn", null)
   function_name     = aws_lambda_function.lambda.arn
-  starting_position = var.event_source_dynamodb_starting_position
+  starting_position = lookup(var.event, "starting_position", "LATEST")
 }
 
 data "aws_iam_policy" "lambda_dynamodb_stream_execution" {
-  count = var.event_source_dynamodb_stream_arn != "" ? 1 : 0
+  count = lookup(var.event, "type", "") == "dynamodb" ? 1 : 0
   arn   = "arn:aws:iam::aws:policy/AWSLambdaInvocation-DynamoDB"
 }
 resource "aws_iam_role_policy_attachment" "lambda_dynamodb_stream_execution" {
-  count      = var.event_source_dynamodb_stream_arn != "" ? 1 : 0
+  count      = lookup(var.event, "type", "") == "dynamodb" ? 1 : 0
   role       = aws_iam_role.lambda.name
   policy_arn = data.aws_iam_policy.lambda_dynamodb_stream_execution[0].arn
 }

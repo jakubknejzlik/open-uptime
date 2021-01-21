@@ -12,21 +12,22 @@ module "scheduler" {
   handler  = "lambda-scheduler"
   schedule = "rate(1 minute)"
   environment_variables = {
-    DYNAMODB_TABLE_NAME = aws_dynamodb_table.monitors.name
+    DYNAMODB_TABLE_NAME = aws_dynamodb_table.main.name
     SQS_QUEUE_URL       = aws_sqs_queue.schedules.id
   }
 
-  policy = <<EOF
+  hasPolicy = true
+  policy    = <<EOF
 {
   "Version": "2012-10-17",
   "Statement": [
     {
       "Action": [
-        "dynamodb:Scan"
+        "dynamodb:Query"
       ],
       "Effect": "Allow",
       "Resource": [
-        "${aws_dynamodb_table.monitors.arn}"
+        "${aws_dynamodb_table.main.arn}*"
       ]
     },
     {

@@ -11,18 +11,8 @@ variable "slack_channel" {
   description = "Slack channel to send alerts to"
 }
 
-variable "cloudwatch_event_target_rule_id" {
-  type        = string
-  default     = ""
-  description = "Rule id of cloudwatch event target"
-}
-variable "cloudwatch_event_target_rule_arn" {
-  type        = string
-  default     = ""
-  description = "Rule id of cloudwatch event target"
-}
-variable "cloudwatch_event_target_bus_name" {
-  type        = string
-  default     = "default"
-  description = "CloudWatch event bus name"
+variable "event" {
+  description = "Event source configuration which triggers the Lambda function. Supported events: cloudwatch-events, dynamodb, sns, sqs"
+  type        = map(string)
+  default     = {}
 }

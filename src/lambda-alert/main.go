@@ -149,7 +149,7 @@ func writeEventBridgeEvent(ctx context.Context, sess *session.Session, changes [
 }
 
 func writeDynamoDBAlert(ctx context.Context, sess *session.Session, changes []StatusChange) (err error) {
-	ddbTableName := os.Getenv("DYNAMODB_ALERTS_TABLE_NAME")
+	ddbTableName := os.Getenv("DYNAMODB_TABLE_NAME")
 	svc := dynamodb.New(session.New())
 
 	now := time.Now()
@@ -158,7 +158,7 @@ func writeDynamoDBAlert(ctx context.Context, sess *session.Session, changes []St
 		event := MonitorAlert{
 			PK:             "m#" + change.Monitor.ID,
 			SK:             "a#" + now.Format(time.RFC3339),
-			MonitorID:      "m#" + change.Monitor.ID,
+			MonitorID:      change.Monitor.ID,
 			Status:         change.Result.Status,
 			Description:    change.Result.Description,
 			EntityType:     "MonitorAlert",

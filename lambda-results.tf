@@ -17,16 +17,20 @@ module "results" {
   filename = ".tmp/lambda-results.zip"
   handler  = "lambda-results"
 
-  event_source_sqs_arn = aws_sqs_queue.results.arn
+  event = {
+    type       = "sqs"
+    source_arn = aws_sqs_queue.results.arn
+  }
 
   environment_variables = {
     TIMESTREAM_DATABASE_NAME     = "openuptime"
     TIMESTREAM_TABLE_NAME        = "monitors"
-    DYNAMODB_MONITORS_TABLE_NAME = aws_dynamodb_table.monitors.id
+    DYNAMODB_MONITORS_TABLE_NAME = aws_dynamodb_table.main.id
     SNS_ARN_STATUS_CHANGES       = aws_sns_topic.status-changes.arn
   }
 
-  policy = <<EOF
+  hasPolicy = true
+  policy    = <<EOF
 {
   "Version": "2012-10-17",
   "Statement": [
@@ -63,7 +67,7 @@ module "results" {
       ],
       "Effect": "Allow",
       "Resource": [
-        "${aws_dynamodb_table.monitors.arn}"
+        "${aws_dynamodb_table.main.arn}"
       ]
     },
     {

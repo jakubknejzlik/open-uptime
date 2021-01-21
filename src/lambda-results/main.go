@@ -228,10 +228,10 @@ func updateMonitorDynamoDBRecord(ctx context.Context, svc *dynamodb.DynamoDB, re
 		},
 		Key: map[string]*dynamodb.AttributeValue{
 			"PK": {
-				S: aws.String(result.MonitorID),
+				S: aws.String("m#" + result.MonitorID),
 			},
 			"SK": {
-				S: aws.String("MONITOR"),
+				S: aws.String("m#" + result.MonitorID),
 			},
 		},
 		TableName:        aws.String(ddbTableName),
@@ -250,10 +250,10 @@ func getMonitorStatuses(ctx context.Context, sess *session.Session, monitorIDs [
 	for _, monitorID := range monitorIDs {
 		batchGetKeys = append(batchGetKeys, map[string]*dynamodb.AttributeValue{
 			"PK": {
-				S: aws.String(monitorID),
+				S: aws.String("m#" + monitorID),
 			},
 			"SK": {
-				S: aws.String("MONITOR"),
+				S: aws.String("m#" + monitorID),
 			},
 		})
 	}

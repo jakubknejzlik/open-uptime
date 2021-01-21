@@ -38,46 +38,56 @@ variable "schedule" {
   description = "Schedule function using EventBridge"
 }
 
-variable "event_source_sqs_arn" {
-  type        = string
-  default     = ""
-  description = "ARN of SQS queue to be used as lambda event source"
-}
-variable "event_source_sns_arn" {
-  type        = string
-  default     = ""
-  description = "ARN of SNS topic to be used as lambda event source"
+variable "event" {
+  description = "Event source configuration which triggers the Lambda function. Supported events: cloudwatch-events, dynamodb, sns, sqs"
+  type        = map(string)
+  default     = {}
 }
 
-variable "event_source_dynamodb_stream_arn" {
-  type        = string
-  default     = ""
-  description = "ARN of DynamoDB stream to be used as lambda event source"
-}
-variable "event_source_dynamodb_starting_position" {
-  type        = string
-  default     = "LATEST"
-  description = "Starting position DynamoDB stream event source"
-}
+# variable "event_source_sqs_arn" {
+#   type        = string
+#   default     = ""
+#   description = "ARN of SQS queue to be used as lambda event source"
+# }
+# variable "event_source_sns_arn" {
+#   type        = string
+#   default     = ""
+#   description = "ARN of SNS topic to be used as lambda event source"
+# }
 
+# variable "event_source_dynamodb_stream_arn" {
+#   type        = string
+#   default     = ""
+#   description = "ARN of DynamoDB stream to be used as lambda event source"
+# }
+# variable "event_source_dynamodb_starting_position" {
+#   type        = string
+#   default     = "LATEST"
+#   description = "Starting position DynamoDB stream event source"
+# }
+
+variable "hasPolicy" {
+  type    = bool
+  default = false
+}
 variable "policy" {
   type        = string
   default     = ""
   description = "Custom IAM policy applied to lambda role"
 }
 
-variable "cloudwatch_event_target_rule_id" {
-  type        = string
-  default     = ""
-  description = "Rule id of cloudwatch event target"
-}
-variable "cloudwatch_event_target_rule_arn" {
-  type        = string
-  default     = ""
-  description = "Rule id of cloudwatch event target"
-}
-variable "cloudwatch_event_target_bus_name" {
-  type        = string
-  default     = "default"
-  description = "CloudWatch event bus name"
-}
+# variable "cloudwatch_event_target_rule_id" {
+#   type        = string
+#   default     = ""
+#   description = "Rule id of cloudwatch event target"
+# }
+# variable "cloudwatch_event_target_rule_arn" {
+#   type        = string
+#   default     = ""
+#   description = "Rule id of cloudwatch event target"
+# }
+# variable "cloudwatch_event_target_bus_name" {
+#   type        = string
+#   default     = "default"
+#   description = "CloudWatch event bus name"
+# }
