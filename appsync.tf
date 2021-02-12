@@ -35,6 +35,10 @@ enum MonitorStatus {
     DOWN
 }
 
+enum MonitorType {
+    HTTP
+}
+
 type Monitor {
     id: ID!
     name: String
