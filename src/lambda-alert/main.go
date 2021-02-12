@@ -49,6 +49,7 @@ type MonitorAlert struct {
 	Description    string     `json:"description"`
 	Date           time.Time  `json:"date"`
 	PrevStatusDate *time.Time `json:"prevStatusDate"`
+	TTL            *int64     `json:"ttl"`
 }
 
 func main() {
@@ -164,6 +165,7 @@ func writeDynamoDBAlert(ctx context.Context, sess *session.Session, changes []St
 			EntityType:     "MonitorAlert",
 			PrevStatusDate: change.Monitor.StatusDate,
 			Date:           change.Result.Time,
+			TTL:            aws.Int64(time.Now().Add(24 * 30 * time.Hour).Unix()),
 		}
 		av, _err := dynamodbattribute.MarshalMap(event)
 		if _err != nil {
