@@ -21,12 +21,14 @@ input MonitorCreateInput {
     name: String!
     schedule: String!
     config: AWSJSON!
+    type: MonitorType!
     enabled: Boolean
 }
 input MonitorUpdateInput {
     name: String
     schedule: String
     config: AWSJSON
+    type: MonitorType
     enabled: Boolean
 }
 
@@ -45,8 +47,9 @@ type Monitor {
     schedule: String!
     config: AWSJSON!
     version: Int
+    type: MonitorType
     enabled: Boolean!
-
+    
     status: MonitorStatus
     statusDescription: String
     statusDate: AWSDateTime

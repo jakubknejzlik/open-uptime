@@ -18,6 +18,7 @@ resource "graphql_mutation" "monitor" {
     name     = var.name
     config   = jsonencode(var.config)
     schedule = var.schedule
+    type     = var.type
   }
 
   compute_from_create = true
