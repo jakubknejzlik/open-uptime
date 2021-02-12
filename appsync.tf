@@ -1,6 +1,13 @@
 resource "aws_appsync_graphql_api" "test" {
-  authentication_type = "API_KEY"
+  authentication_type = "OPENID_CONNECT"
   name                = "openuptime"
+
+  openid_connect_config {
+    issuer = var.openid_issuer
+  }
+  additional_authentication_provider {
+    authentication_type = "AWS_IAM"
+  }
 
   xray_enabled = true
 
@@ -67,10 +74,6 @@ resource "aws_appsync_datasource" "monitors" {
   dynamodb_config {
     table_name = aws_dynamodb_table.main.name
   }
-}
-
-resource "aws_appsync_api_key" "test" {
-  api_id = aws_appsync_graphql_api.test.id
 }
 
 resource "aws_appsync_resolver" "get-monitor" {

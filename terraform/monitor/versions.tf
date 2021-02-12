@@ -1,9 +1,5 @@
 terraform {
   required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "3.22.0"
-    }
     oauth = {
       source  = "SvenHamers/oauth"
       version = "0.2.3"

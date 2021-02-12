@@ -13,6 +13,9 @@ apply:
 destroy:	
 	terraform destroy
 
+test:
+	TF_LOG=true terraform apply -target=graphql_mutation.test
+
 build-lambda-scheduler:
 	cd src/lambda-scheduler && GOOS=linux GOARCH=amd64 go build -o ../../.tmp/lambda-scheduler *.go
 build-lambda-http:
