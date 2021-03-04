@@ -1,12 +1,12 @@
 resource "aws_appsync_graphql_api" "test" {
-  authentication_type = "OPENID_CONNECT"
+  authentication_type = "AWS_IAM"
   name                = "openuptime"
 
-  openid_connect_config {
-    issuer = var.openid_issuer
-  }
   additional_authentication_provider {
-    authentication_type = "AWS_IAM"
+    authentication_type = "OPENID_CONNECT"
+    openid_connect_config {
+      issuer = var.openid_issuer
+    }
   }
 
   xray_enabled = true
@@ -131,6 +131,7 @@ resource "aws_appsync_resolver" "create-monitor" {
         "name" : $util.dynamodb.toDynamoDBJson($ctx.arguments.input.name),
         "schedule" : $util.dynamodb.toDynamoDBJson($ctx.arguments.input.schedule),
         "config" : $util.dynamodb.toDynamoDBJson($ctx.arguments.input.config),
+        "type" : $util.dynamodb.toDynamoDBJson($ctx.arguments.input.type),
         "enabled" : $util.dynamodb.toDynamoDBJson($util.defaultIfNull($ctx.arguments.input.enabled,true)),
         "entityType" : $util.dynamodb.toDynamoDBJson("Monitor"),
         "version" : { "N" : 1 }
